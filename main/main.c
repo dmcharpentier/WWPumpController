@@ -58,9 +58,8 @@ int currentIndex = 0;              // Current index for display, static to prese
 // Menu Variables
 // int isMenu = 1;
 uint8_t menuLevel = 0;
-int p1Active = 0;
-int p2Active = 0;
 int temp = 0;
+int alternatePump = 0;
 
 // uint8_t SEG8Code[16] = {
 //     0x5F, // 0
@@ -81,23 +80,9 @@ int temp = 0;
 //     0x8D  // F
 // };
 /*       NO.:0,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20,21,22 23 24 25 26 27 28
-Character :0,1,2,3,4,5,6,7,8,9,A, b, C, c, d, E, F, H, h, L, n, N, o, P, r, t, U, -,  ,*/
+  Character :0,1,2,3,4,5,6,7,8,9,A, b, C, c, d, E, F, H, h, L, n, N, o, P, r, t, U, -,  ,*/
 uint8_t SEG8Code[] =
     {0x3f, 0x06, 0x5b, 0x4f, 0x66, 0x6d, 0x7d, 0x07, 0x7f, 0x6f, 0x77, 0x7c, 0x39, 0x58, 0x5e, 0x79, 0x71, 0x76, 0x74, 0x38, 0x54, 0x37, 0x5c, 0x73, 0x50, 0x78, 0x3e, 0x40, 0x00}; // Common anode Digital Tube Character Gallery
-
-const int statusMessages[][4] = {
-    {28, 27, 27, 28}, // " -- " 0
-    {10, 26, 25, 22}, //"AUto"  1
-    {23, 27, 1, 10},  // "P-1A" 2
-    {23, 27, 2, 10},  // "P-2A" 3
-    {23, 27, 3, 10},  // "P-3A" 4
-    {23, 27, 1, 17},  // "P-1H" 5
-    {23, 27, 2, 17},  // "P-2H" 6
-    {23, 27, 3, 17},  // "P-3H" 7
-    {23, 27, 1, 20},  // "P-1N" 8
-    {23, 27, 2, 20},  // "P-2N" 9
-    {15, 24, 24, 28}  // "Err " 10
-};
 
 uint16_t Time_Cnt = 0;
 uint8_t Out_Value = 0;
@@ -124,8 +109,9 @@ struct ps
 };
 
 struct pumps switchStatus;
-struct pumps pumpStatus;
+struct pumps pumpEnable;
 struct ps psStatus;
+struct ps psEnable;
 
 uint8_t Read_Inputs(void)
 {
@@ -376,6 +362,31 @@ void Get_KEY_Value(int lvl)
  *                     Messaging System
  *
  ********************************************************/
+/*       NO.:0,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16
+ *       CH.:0,1,2,3,4,5,6,7,8,9,A ,b ,C ,c ,d ,E ,F 
+ *       NO.:17,18,19,20,21,22,23,24,25,26,27,28
+ *       CH.:H ,h ,L ,n ,N ,o ,P ,r ,t ,U ,- ,  ,*/
+const int statusMessages[][4] = {
+    {28, 27, 27, 28}, // " -- " 0
+    {10, 26, 25, 22}, //"AUto"  1
+    {23, 27, 1, 10},  // "P-1A" 2
+    {23, 27, 2, 10},  // "P-2A" 3
+    {23, 27, 3, 10},  // "P-3A" 4
+    {23, 27, 1, 17},  // "P-1H" 5
+    {23, 27, 2, 17},  // "P-2H" 6
+    {23, 27, 3, 17},  // "P-3H" 7
+    {23, 1, 28, 26},  // "P1 Y" 8
+    {23, 2, 28, 26},  // "P2 Y" 9
+    {23, 3, 28, 26},  // "P3 Y" 10
+    {23, 1, 28, 21},  // "P1 N" 11
+    {23, 2, 28, 21},  // "P2 N" 12
+    {23, 3, 28, 21},  // "P3 N" 13
+    {10, 19, 28, 26},  // "AL Y" 14
+    {10, 19, 28, 21},  // "AL N" 15
+    {10, 19, 28, 26},  // "AL Y" 16
+    {10, 19, 28, 21},  // "AL N" 17
+    {15, 24, 24, 28}  // "Err " 18
+};
 
 bool areMessagesEqual(int msg1[MSG_SIZE], int msg2[MSG_SIZE])
 {
@@ -475,7 +486,7 @@ void outputSend(void)
     int px3 = curDisplay[2];
     int px4 = curDisplay[3];
     uint8_t tempPx[4] = {0};
-    tempPx[0] = SEG8Code[menuLevel];
+    tempPx[0] = SEG8Code[px1];
     tempPx[1] = SEG8Code[px2];
     tempPx[2] = SEG8Code[px3]; //| Dot;
     tempPx[3] = SEG8Code[px4];
@@ -501,18 +512,10 @@ void mainMenu(void)
             // p1Active
             while (menuLevel == 1)
             {
-                temp = (pumpStatus.p1a == 1) ? 1 : temp;
+                temp = (pumpEnable.p1a == 1) ? 1 : temp;
                 Get_KEY_Value(1);
-                pumpStatus.p1a = temp;
-                if (pumpStatus.p1a == 1)
-                {
-                    addMsg(2);
-                }
-                else
-                {
-                    deleteMsg(2);
-                }
-                if (pumpStatus.p1a == 0)
+                pumpEnable.p1a = temp;
+                if (pumpEnable.p1a == 1)
                 {
                     addMsg(8);
                 }
@@ -520,27 +523,27 @@ void mainMenu(void)
                 {
                     deleteMsg(8);
                 }
+                if (pumpEnable.p1a == 0)
+                {
+                    addMsg(11);
+                }
+                else
+                {
+                    deleteMsg(11);
+                }
             }
-            deleteMsg(2);
             deleteMsg(8);
+            deleteMsg(11);
             break;
 
         case 2:
             // p2Active
             while (menuLevel == 2)
             {
-                temp = (pumpStatus.p2a == 1) ? 1 : temp;
+                temp = (pumpEnable.p2a == 1) ? 1 : temp;
                 Get_KEY_Value(1);
-                pumpStatus.p2a = temp;
-                if (pumpStatus.p2a == 1)
-                {
-                    addMsg(3);
-                }
-                else
-                {
-                    deleteMsg(3);
-                }
-                if (pumpStatus.p1a == 0)
+                pumpEnable.p2a = temp;
+                if (pumpEnable.p2a == 1)
                 {
                     addMsg(9);
                 }
@@ -548,24 +551,101 @@ void mainMenu(void)
                 {
                     deleteMsg(9);
                 }
+                if (pumpEnable.p2a == 0)
+                {
+                    addMsg(12);
+                }
+                else
+                {
+                    deleteMsg(12);
+                }
             }
-            deleteMsg(3);
             deleteMsg(9);
+            deleteMsg(12);
             break;
 
         case 3:
             // p3Active
-            // Define actions for menuLevel 3
+            while (menuLevel == 3)
+            {
+                temp = (pumpEnable.p3a == 1) ? 1 : temp;
+                Get_KEY_Value(1);
+                pumpEnable.p3a = temp;
+                if (pumpEnable.p3a == 1)
+                {
+                    addMsg(10);
+                }
+                else
+                {
+                    deleteMsg(10);
+                }
+                if (pumpEnable.p3a == 0)
+                {
+                    addMsg(13);
+                }
+                else
+                {
+                    deleteMsg(13);
+                }
+            }
+            deleteMsg(10);
+            deleteMsg(13);
             break;
 
         case 4:
             // alternatePump
-            // Define actions for menuLevel 4
+            while (menuLevel == 4)
+            {
+                temp = (alternatePump == 1) ? 1 : temp;
+                Get_KEY_Value(1);
+                alternatePump = temp;
+                if (alternatePump == 1)
+                {
+                    addMsg(14);
+                }
+                else
+                {
+                    deleteMsg(14);
+                }
+                if (alternatePump == 0)
+                {
+                    addMsg(15);
+                }
+                else
+                {
+                    deleteMsg(15);
+                }
+            }
+            deleteMsg(14);
+            deleteMsg(15);
             break;
 
         case 5:
-            // ps1 enable
-            // Define actions for menuLevel 5
+            // ps1 enable psEnable.ps1
+            while (menuLevel == 5)
+            {
+                temp = (psEnable.ps1 == 1) ? 1 : temp;
+                Get_KEY_Value(1);
+                psEnable.ps1 = temp;
+                if (psEnable.ps1 == 1)
+                {
+                    addMsg(14);
+                }
+                else
+                {
+                    deleteMsg(14);
+                }
+                if (psEnable.ps1 == 0)
+                {
+                    addMsg(15);
+                }
+                else
+                {
+                    deleteMsg(15);
+                }
+            }
+            deleteMsg(14);
+            deleteMsg(15);
             break;
 
         case 6:
@@ -584,7 +664,7 @@ static bool IRAM_ATTR io_timer_cb(gptimer_handle_t timer, const gptimer_alarm_ev
 {
     switchSet();
     outputSend();
-    if (counter == 1000)
+    if (counter == 1000 || msgCount == 0)
     {
         counter = 0;
         displayRotate();
