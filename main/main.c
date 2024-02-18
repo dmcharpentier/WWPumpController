@@ -306,7 +306,7 @@ void Get_KEY_Value(int lvl)
 {
     static TickType_t lastPressTime = 0;
     const TickType_t debounceTime = pdMS_TO_TICKS(50);   // Debounce time of 50 ms
-    const TickType_t pressInterval = pdMS_TO_TICKS(100); // Minimum interval between presses
+    const TickType_t pressInterval = pdMS_TO_TICKS(50); // Minimum interval between presses
     TickType_t currentTime = xTaskGetTickCount();
 
     // Check if enough time has passed since the last press
@@ -746,7 +746,7 @@ void mainMenu(void)
                 break;
 
             default:
-                // Handle unexpected menuLevel values
+                menuLevel = 0;
                 break;
             }
         }
@@ -763,7 +763,7 @@ static bool IRAM_ATTR io_timer_cb(gptimer_handle_t timer, const gptimer_alarm_ev
 {
     switchSet();
     outputSend();
-    if (counter == 250)
+    if (counter == 100)
     {
         counter = 0;
         displayRotate();
@@ -840,6 +840,7 @@ void app_main(void)
 
     ioTimerInit();
     initReadNvs();
+    addMsg(0);
     while (1)
     {
         mainMenu();
