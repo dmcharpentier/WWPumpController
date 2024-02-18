@@ -67,8 +67,6 @@ int alternatePump = 0;
 nvs_handle_t settings;
 int32_t settingVar = 0; // value will default to 0, if not set yet in NVS
 
-
-
 uint8_t SEG8Code[] =
     {0x3f, 0x06, 0x5b, 0x4f, 0x66, 0x6d, 0x7d, 0x07, 0x7f, 0x6f, 0x77, 0x7c, 0x39, 0x58, 0x5e, 0x79, 0x71, 0x76, 0x74, 0x38, 0x54, 0x37, 0x5c, 0x73, 0x50, 0x78, 0x3e, 0x40, 0x00}; // Common anode Digital Tube Character Gallery
 
@@ -125,30 +123,34 @@ void initReadNvs(void)
     esp_err_t err = nvs_flash_init();
     if (err == ESP_ERR_NVS_NO_FREE_PAGES || err == ESP_ERR_NVS_NEW_VERSION_FOUND)
     {
-        //ESP_ERROR_CHECK(nvs_flash_erase());
+        // ESP_ERROR_CHECK(nvs_flash_erase());
         err = nvs_flash_init();
     }
     ESP_ERROR_CHECK(err);
 
     err = nvs_open("storage", NVS_READWRITE, &settings);
-    if (err != ESP_OK) {
+    if (err != ESP_OK)
+    {
         printf("Error (%s) opening NVS handle!\n", esp_err_to_name(err));
-    } else {
+    }
+    else
+    {
         printf("Done\n");
 
         // Read
         printf("Reading settings from NVS ... ");
         err = nvs_get_i32(settings, "settings", &settingVar);
-        switch (err) {
-            case ESP_OK:
-                printf("Done\n");
-                printf("Settings = %" PRIu32 "\n", settingVar);
-                break;
-            case ESP_ERR_NVS_NOT_FOUND:
-                printf("The value is not initialized yet!\n");
-                break;
-            default :
-                printf("Error (%s) reading!\n", esp_err_to_name(err));
+        switch (err)
+        {
+        case ESP_OK:
+            printf("Done\n");
+            printf("Settings = %" PRIu32 "\n", settingVar);
+            break;
+        case ESP_ERR_NVS_NOT_FOUND:
+            printf("The value is not initialized yet!\n");
+            break;
+        default:
+            printf("Error (%s) reading!\n", esp_err_to_name(err));
         }
     }
     readNvsVar();
@@ -423,7 +425,7 @@ void Get_KEY_Value(int lvl)
  *
  ********************************************************/
 /*       NO.:0,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16
- *       CH.:0,1,2,3,4,5,6,7,8,9,A ,b ,C ,c ,d ,E ,F 
+ *       CH.:0,1,2,3,4,5,6,7,8,9,A ,b ,C ,c ,d ,E ,F
  *       NO.:17,18,19,20,21,22,23,24,25,26,27,28
  *       CH.:H ,h ,L ,n ,N ,o ,P ,r ,t ,U ,- ,  ,*/
 const int statusMessages[][4] = {
@@ -441,13 +443,13 @@ const int statusMessages[][4] = {
     {23, 1, 28, 21},  // "P1 N" 11
     {23, 2, 28, 21},  // "P2 N" 12
     {23, 3, 28, 21},  // "P3 N" 13
-    {10, 19, 28, 26},  // "AL Y" 14
-    {10, 19, 28, 21},  // "AL N" 15
+    {10, 19, 28, 26}, // "AL Y" 14
+    {10, 19, 28, 21}, // "AL N" 15
     {25, 1, 28, 26},  // "t1 Y" 16
     {25, 1, 28, 21},  // "t1 N" 17
-    {25, 2, 28, 26},  // "t2 Y" 16
-    {25, 2, 28, 21},  // "t2 N" 17
-    {15, 24, 24, 28}  // "Err " 18
+    {25, 2, 28, 26},  // "t2 Y" 18
+    {25, 2, 28, 21},  // "t2 N" 19
+    {15, 24, 24, 28}  // "Err " 20
 };
 
 bool areMessagesEqual(int msg1[MSG_SIZE], int msg2[MSG_SIZE])
@@ -569,166 +571,191 @@ void mainMenu(void)
     {
         // Code to display menu here
         // Code to handle menu input
-    while (menuLevel > 0)
-    {
-        temp = 0;
-        switch (menuLevel)
+        deleteMsg(0);
+        while (menuLevel > 0)
         {
-        case 1:
-            // p1Active
-            while (menuLevel == 1)
+            temp = 0;
+            switch (menuLevel)
             {
-                temp = (pumpEnable.p1a == 1) ? 1 : temp;
-                Get_KEY_Value(1);
-                pumpEnable.p1a = temp;
-                if (pumpEnable.p1a == 1)
+            case 1:
+                // p1Active
+                while (menuLevel == 1)
                 {
-                    addMsg(8);
+                    temp = (pumpEnable.p1a == 1) ? 1 : temp;
+                    Get_KEY_Value(1);
+                    pumpEnable.p1a = temp;
+                    if (pumpEnable.p1a == 1)
+                    {
+                        addMsg(8);
+                    }
+                    else
+                    {
+                        deleteMsg(8);
+                    }
+                    if (pumpEnable.p1a == 0)
+                    {
+                        addMsg(11);
+                    }
+                    else
+                    {
+                        deleteMsg(11);
+                    }
                 }
-                else
+                deleteMsg(8);
+                deleteMsg(11);
+                break;
+
+            case 2:
+                // p2Active
+                while (menuLevel == 2)
                 {
-                    deleteMsg(8);
+                    temp = (pumpEnable.p2a == 1) ? 1 : temp;
+                    Get_KEY_Value(1);
+                    pumpEnable.p2a = temp;
+                    if (pumpEnable.p2a == 1)
+                    {
+                        addMsg(9);
+                    }
+                    else
+                    {
+                        deleteMsg(9);
+                    }
+                    if (pumpEnable.p2a == 0)
+                    {
+                        addMsg(12);
+                    }
+                    else
+                    {
+                        deleteMsg(12);
+                    }
                 }
-                if (pumpEnable.p1a == 0)
+                deleteMsg(9);
+                deleteMsg(12);
+                break;
+
+            case 3:
+                // p3Active
+                while (menuLevel == 3)
                 {
-                    addMsg(11);
+                    temp = (pumpEnable.p3a == 1) ? 1 : temp;
+                    Get_KEY_Value(1);
+                    pumpEnable.p3a = temp;
+                    if (pumpEnable.p3a == 1)
+                    {
+                        addMsg(10);
+                    }
+                    else
+                    {
+                        deleteMsg(10);
+                    }
+                    if (pumpEnable.p3a == 0)
+                    {
+                        addMsg(13);
+                    }
+                    else
+                    {
+                        deleteMsg(13);
+                    }
                 }
-                else
+                deleteMsg(10);
+                deleteMsg(13);
+                break;
+
+            case 4:
+                // alternatePump
+                while (menuLevel == 4)
                 {
-                    deleteMsg(11);
+                    temp = (alternatePump == 1) ? 1 : temp;
+                    Get_KEY_Value(1);
+                    alternatePump = temp;
+                    if (alternatePump == 1)
+                    {
+                        addMsg(14);
+                    }
+                    else
+                    {
+                        deleteMsg(14);
+                    }
+                    if (alternatePump == 0)
+                    {
+                        addMsg(15);
+                    }
+                    else
+                    {
+                        deleteMsg(15);
+                    }
                 }
+                deleteMsg(14);
+                deleteMsg(15);
+                break;
+
+            case 5:
+                // ps1 enable psEnable.ps1
+                while (menuLevel == 5)
+                {
+                    temp = (psEnable.ps1 == 1) ? 1 : temp;
+                    Get_KEY_Value(1);
+                    psEnable.ps1 = temp;
+                    if (psEnable.ps1 == 1)
+                    {
+                        addMsg(16);
+                    }
+                    else
+                    {
+                        deleteMsg(16);
+                    }
+                    if (psEnable.ps1 == 0)
+                    {
+                        addMsg(17);
+                    }
+                    else
+                    {
+                        deleteMsg(17);
+                    }
+                }
+                deleteMsg(16);
+                deleteMsg(17);
+                break;
+
+            case 6:
+                // ps2 enable
+                while (menuLevel == 6)
+                {
+                    temp = (psEnable.ps2 == 1) ? 1 : temp;
+                    Get_KEY_Value(1);
+                    psEnable.ps2 = temp;
+                    if (psEnable.ps2 == 1)
+                    {
+                        addMsg(18);
+                    }
+                    else
+                    {
+                        deleteMsg(18);
+                    }
+                    if (psEnable.ps2 == 0)
+                    {
+                        addMsg(19);
+                    }
+                    else
+                    {
+                        deleteMsg(19);
+                    }
+                }
+                deleteMsg(18);
+                deleteMsg(19);
+                break;
+
+            default:
+                // Handle unexpected menuLevel values
+                break;
             }
-            deleteMsg(8);
-            deleteMsg(11);
-            break;
-
-        case 2:
-            // p2Active
-            while (menuLevel == 2)
-            {
-                temp = (pumpEnable.p2a == 1) ? 1 : temp;
-                Get_KEY_Value(1);
-                pumpEnable.p2a = temp;
-                if (pumpEnable.p2a == 1)
-                {
-                    addMsg(9);
-                }
-                else
-                {
-                    deleteMsg(9);
-                }
-                if (pumpEnable.p2a == 0)
-                {
-                    addMsg(12);
-                }
-                else
-                {
-                    deleteMsg(12);
-                }
-            }
-            deleteMsg(9);
-            deleteMsg(12);
-            break;
-
-        case 3:
-            // p3Active
-            while (menuLevel == 3)
-            {
-                temp = (pumpEnable.p3a == 1) ? 1 : temp;
-                Get_KEY_Value(1);
-                pumpEnable.p3a = temp;
-                if (pumpEnable.p3a == 1)
-                {
-                    addMsg(10);
-                }
-                else
-                {
-                    deleteMsg(10);
-                }
-                if (pumpEnable.p3a == 0)
-                {
-                    addMsg(13);
-                }
-                else
-                {
-                    deleteMsg(13);
-                }
-            }
-            deleteMsg(10);
-            deleteMsg(13);
-            break;
-
-        case 4:
-            // alternatePump
-            while (menuLevel == 4)
-            {
-                temp = (alternatePump == 1) ? 1 : temp;
-                Get_KEY_Value(1);
-                alternatePump = temp;
-                if (alternatePump == 1)
-                {
-                    addMsg(14);
-                }
-                else
-                {
-                    deleteMsg(14);
-                }
-                if (alternatePump == 0)
-                {
-                    addMsg(15);
-                }
-                else
-                {
-                    deleteMsg(15);
-                }
-            }
-            deleteMsg(14);
-            deleteMsg(15);
-            break;
-
-        case 5:
-            // ps1 enable psEnable.ps1
-            while (menuLevel == 5)
-            {
-                temp = (psEnable.ps1 == 1) ? 1 : temp;
-                Get_KEY_Value(1);
-                psEnable.ps1 = temp;
-                if (psEnable.ps1 == 1)
-                {
-                    addMsg(16);
-                }
-                else
-                {
-                    deleteMsg(16);
-                }
-                if (psEnable.ps1 == 0)
-                {
-                    addMsg(17);
-                }
-                else
-                {
-                    deleteMsg(17);
-                }
-            }
-            deleteMsg(16);
-            deleteMsg(17);
-            break;
-
-        case 6:
-            // ps2 enable
-            // Define actions for menuLevel 6
-            break;
-
-        default:
-            // Handle unexpected menuLevel values
-            break;
         }
-    }
-    if (menuLevel == 0)
-    {
-        updateNvsVar();
-        setNvs();
-    }
+        if (menuLevel == 0)
+        {
+            updateNvsVar();
+            setNvs();
+            addMsg(0);
+        }
     }
 }
 
