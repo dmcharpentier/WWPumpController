@@ -1,7 +1,7 @@
-#include <stdio.h>
-#include <string.h>
-#include <stdlib.h>
-#include <inttypes.h>
+#include "stdio.h"
+#include "string.h"
+#include "stdlib.h"
+#include "inttypes.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 #include "freertos/queue.h"
@@ -10,6 +10,8 @@
 #include "esp_log.h"
 #include "button_gpio.h"
 #include "nvs.h"
+#include "esp_system.h"
+#include "nvs_flash.h"
 
 #define CLOCK_595 27
 #define LATCH_595 14
@@ -61,29 +63,16 @@ uint8_t menuLevel = 0;
 int temp = 0;
 int alternatePump = 0;
 
-// uint8_t SEG8Code[16] = {
-//     0x5F, // 0
-//     0x42, // 1
-//     0x9B, // 2
-//     0xD3, // 3
-//     0xC6, // 4
-//     0xD5, // 5
-//     0xDD, // 6
-//     0x43, // 7
-//     0xDF, // 8
-//     0xD7, // 9
-//     0xCF, // A
-//     0xDC, // b
-//     0x1D, // C
-//     0xDA, // d
-//     0x9D, // E
-//     0x8D  // F
-// };
-/*       NO.:0,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20,21,22 23 24 25 26 27 28
-  Character :0,1,2,3,4,5,6,7,8,9,A, b, C, c, d, E, F, H, h, L, n, N, o, P, r, t, U, -,  ,*/
+// NVS Variables
+nvs_handle_t settings;
+int32_t settingVar = 0; // value will default to 0, if not set yet in NVS
+
+
+
 uint8_t SEG8Code[] =
     {0x3f, 0x06, 0x5b, 0x4f, 0x66, 0x6d, 0x7d, 0x07, 0x7f, 0x6f, 0x77, 0x7c, 0x39, 0x58, 0x5e, 0x79, 0x71, 0x76, 0x74, 0x38, 0x54, 0x37, 0x5c, 0x73, 0x50, 0x78, 0x3e, 0x40, 0x00}; // Common anode Digital Tube Character Gallery
 
+// Logix Variables
 uint16_t Time_Cnt = 0;
 uint8_t Out_Value = 0;
 uint8_t Out_Cnt = 0;
@@ -112,6 +101,77 @@ struct pumps switchStatus;
 struct pumps pumpEnable;
 struct ps psStatus;
 struct ps psEnable;
+
+void updateNvsVar(void)
+{
+    settingVar = (pumpEnable.p1a << 0) | (pumpEnable.p2a << 1) | (pumpEnable.p3a << 2) | (pumpEnable.p1h << 3) | (pumpEnable.p2h << 4) | (pumpEnable.p3h << 5) | (psEnable.ps1 << 6) | (psEnable.ps2 << 7) | (alternatePump << 8);
+}
+
+void readNvsVar(void)
+{
+    pumpEnable.p1a = (settingVar >> 0) & 1;
+    pumpEnable.p2a = (settingVar >> 1) & 1;
+    pumpEnable.p3a = (settingVar >> 2) & 1;
+    pumpEnable.p1h = (settingVar >> 3) & 1;
+    pumpEnable.p2h = (settingVar >> 4) & 1;
+    pumpEnable.p3h = (settingVar >> 5) & 1;
+    psEnable.ps1 = (settingVar >> 6) & 1;
+    psEnable.ps2 = (settingVar >> 7) & 1;
+    alternatePump = (settingVar >> 8) & 1;
+}
+
+void initReadNvs(void)
+{
+    esp_err_t err = nvs_flash_init();
+    if (err == ESP_ERR_NVS_NO_FREE_PAGES || err == ESP_ERR_NVS_NEW_VERSION_FOUND)
+    {
+        //ESP_ERROR_CHECK(nvs_flash_erase());
+        err = nvs_flash_init();
+    }
+    ESP_ERROR_CHECK(err);
+
+    err = nvs_open("storage", NVS_READWRITE, &settings);
+    if (err != ESP_OK) {
+        printf("Error (%s) opening NVS handle!\n", esp_err_to_name(err));
+    } else {
+        printf("Done\n");
+
+        // Read
+        printf("Reading settings from NVS ... ");
+        err = nvs_get_i32(settings, "settings", &settingVar);
+        switch (err) {
+            case ESP_OK:
+                printf("Done\n");
+                printf("Settings = %" PRIu32 "\n", settingVar);
+                break;
+            case ESP_ERR_NVS_NOT_FOUND:
+                printf("The value is not initialized yet!\n");
+                break;
+            default :
+                printf("Error (%s) reading!\n", esp_err_to_name(err));
+        }
+    }
+    readNvsVar();
+    nvs_close(settings);
+}
+
+void setNvs(void)
+{
+    esp_err_t err = nvs_flash_init();
+    // Write
+    err = nvs_open("storage", NVS_READWRITE, &settings);
+    printf("Updating settings in NVS ... ");
+    err = nvs_set_i32(settings, "settings", settingVar);
+    printf((err != ESP_OK) ? "Failed!\n" : "Done\n");
+
+    // Commit written value.
+    printf("Committing updates in NVS ... ");
+    err = nvs_commit(settings);
+    printf((err != ESP_OK) ? "Failed!\n" : "Done\n");
+
+    // Close
+    nvs_close(settings);
+}
 
 uint8_t Read_Inputs(void)
 {
@@ -383,8 +443,10 @@ const int statusMessages[][4] = {
     {23, 3, 28, 21},  // "P3 N" 13
     {10, 19, 28, 26},  // "AL Y" 14
     {10, 19, 28, 21},  // "AL N" 15
-    {10, 19, 28, 26},  // "AL Y" 16
-    {10, 19, 28, 21},  // "AL N" 17
+    {25, 1, 28, 26},  // "t1 Y" 16
+    {25, 1, 28, 21},  // "t1 N" 17
+    {25, 2, 28, 26},  // "t2 Y" 16
+    {25, 2, 28, 21},  // "t2 N" 17
     {15, 24, 24, 28}  // "Err " 18
 };
 
@@ -503,6 +565,10 @@ void mainMenu(void)
     Get_KEY_Value(0);
     // Code to clear relays and screen here
 
+    if (menuLevel > 0)
+    {
+        // Code to display menu here
+        // Code to handle menu input
     while (menuLevel > 0)
     {
         temp = 0;
@@ -629,23 +695,23 @@ void mainMenu(void)
                 psEnable.ps1 = temp;
                 if (psEnable.ps1 == 1)
                 {
-                    addMsg(14);
+                    addMsg(16);
                 }
                 else
                 {
-                    deleteMsg(14);
+                    deleteMsg(16);
                 }
                 if (psEnable.ps1 == 0)
                 {
-                    addMsg(15);
+                    addMsg(17);
                 }
                 else
                 {
-                    deleteMsg(15);
+                    deleteMsg(17);
                 }
             }
-            deleteMsg(14);
-            deleteMsg(15);
+            deleteMsg(16);
+            deleteMsg(17);
             break;
 
         case 6:
@@ -658,13 +724,19 @@ void mainMenu(void)
             break;
         }
     }
+    if (menuLevel == 0)
+    {
+        updateNvsVar();
+        setNvs();
+    }
+    }
 }
 
 static bool IRAM_ATTR io_timer_cb(gptimer_handle_t timer, const gptimer_alarm_event_data_t *edata, void *user_data)
 {
     switchSet();
     outputSend();
-    if (counter == 1000 || msgCount == 0)
+    if (counter == 250)
     {
         counter = 0;
         displayRotate();
@@ -740,6 +812,7 @@ void app_main(void)
     gpio_config(&io_conf);
 
     ioTimerInit();
+    initReadNvs();
     while (1)
     {
         mainMenu();
