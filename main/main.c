@@ -11,28 +11,28 @@
 #include "button_gpio.h"
 #include "nvs.h"
 
-#define CLOCK_595       27
-#define LATCH_595       14
-#define DATA_595        13
-#define OE_595          4
-#define LED             15
-#define LOAD_165        16
-#define CLK_165         17
-#define GPIO_OUTPUT_PIN_SEL  ((1ULL<<CLOCK_595) | (1ULL<<LATCH_595) | (1ULL<<DATA_595) | (1ULL<<OE_595) | (1ULL<<LED) | (1ULL<<LOAD_165) | (1ULL<<CLK_165))
+#define CLOCK_595 27
+#define LATCH_595 14
+#define DATA_595 13
+#define OE_595 4
+#define LED 15
+#define LOAD_165 16
+#define CLK_165 17
+#define GPIO_OUTPUT_PIN_SEL ((1ULL << CLOCK_595) | (1ULL << LATCH_595) | (1ULL << DATA_595) | (1ULL << OE_595) | (1ULL << LED) | (1ULL << LOAD_165) | (1ULL << CLK_165))
 
-#define KEY1        18
-#define KEY2        19
-#define KEY3        21
-#define KEY4        23
-#define DATA165     5
-#define GPIO_INPUT_PIN_SEL  ((1ULL<<KEY1) | (1ULL<<KEY2) | (1ULL<<KEY3) | (1ULL<<KEY4))
+#define KEY1 18
+#define KEY2 19
+#define KEY3 21
+#define KEY4 23
+#define DATA165 5
+#define GPIO_INPUT_PIN_SEL ((1ULL << KEY1) | (1ULL << KEY2) | (1ULL << KEY3) | (1ULL << KEY4))
 
-#define EXAMPLE_ADC1_CHAN0          ADC_CHANNEL_0
-#define EXAMPLE_ADC1_CHAN1          ADC_CHANNEL_3
-#define EXAMPLE_ADC1_CHAN2          ADC_CHANNEL_6
-#define EXAMPLE_ADC1_CHAN3          ADC_CHANNEL_7
-#define EXAMPLE_ADC1_CHAN4          ADC_CHANNEL_4
-#define EXAMPLE_ADC1_CHAN5          ADC_CHANNEL_5
+#define EXAMPLE_ADC1_CHAN0 ADC_CHANNEL_0
+#define EXAMPLE_ADC1_CHAN1 ADC_CHANNEL_3
+#define EXAMPLE_ADC1_CHAN2 ADC_CHANNEL_6
+#define EXAMPLE_ADC1_CHAN3 ADC_CHANNEL_7
+#define EXAMPLE_ADC1_CHAN4 ADC_CHANNEL_4
+#define EXAMPLE_ADC1_CHAN5 ADC_CHANNEL_5
 
 static const char *TAG = "Ctrl";
 
@@ -41,22 +41,22 @@ uint8_t curDisplay[4] = {0};
 uint8_t Dot = 0x80;
 uint8_t BitsSele = 0;
 
-//Loop Logix Variables
+// Loop Logix Variables
 int counter = 0; // Initialize counter
 
 // LSB (least significant bit) first or MSB (most significant bit) first
 #define LSBFIRST 0
 #define MSBFIRST 1
 
-//Message Variables
-#define MAX_MSGS 4 // Maximum number of messages
-#define MSG_SIZE 4  // Size of each message
+// Message Variables
+#define MAX_MSGS 4                 // Maximum number of messages
+#define MSG_SIZE 4                 // Size of each message
 int activeMsg[MAX_MSGS][MSG_SIZE]; // Array of arrays to store messages
-int msgCount = 0; // Current number of messages
-int currentIndex = 0; // Current index for display, static to preserve its value between calls
+int msgCount = 0;                  // Current number of messages
+int currentIndex = 0;              // Current index for display, static to preserve its value between calls
 
-//Menu Variables
-//int isMenu = 1;
+// Menu Variables
+// int isMenu = 1;
 uint8_t menuLevel = 0;
 int p1Active = 0;
 int p2Active = 0;
@@ -80,10 +80,10 @@ int temp = 0;
 //     0x9D, // E
 //     0x8D  // F
 // };
-/*       NO.:0,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20,21,22 23 24 25 26 27 28      
+/*       NO.:0,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20,21,22 23 24 25 26 27 28
 Character :0,1,2,3,4,5,6,7,8,9,A, b, C, c, d, E, F, H, h, L, n, N, o, P, r, t, U, -,  ,*/
-uint8_t  SEG8Code[] = 
-{0x3f,0x06,0x5b,0x4f,0x66,0x6d,0x7d,0x07,0x7f,0x6f,0x77,0x7c,0x39,0x58,0x5e,0x79,0x71,0x76,0x74,0x38,0x54,0x37,0x5c,0x73,0x50,0x78,0x3e,0x40,0x00};//Common anode Digital Tube Character Gallery
+uint8_t SEG8Code[] =
+    {0x3f, 0x06, 0x5b, 0x4f, 0x66, 0x6d, 0x7d, 0x07, 0x7f, 0x6f, 0x77, 0x7c, 0x39, 0x58, 0x5e, 0x79, 0x71, 0x76, 0x74, 0x38, 0x54, 0x37, 0x5c, 0x73, 0x50, 0x78, 0x3e, 0x40, 0x00}; // Common anode Digital Tube Character Gallery
 
 const int statusMessages[][4] = {
     {28, 27, 27, 28}, // " -- " 0
@@ -105,20 +105,22 @@ uint8_t Out_Cnt = 0;
 uint8_t Value = 0;
 uint8_t Relays = 0;
 
-struct pumps {
-    //set auto switch
-    unsigned int p1a:1;
-    unsigned int p2a:1;
-    unsigned int p3a:1;
-    //set hand switch
-    unsigned int p1h:1;
-    unsigned int p2h:1;
-    unsigned int p3h:1;
+struct pumps
+{
+    // set auto switch
+    unsigned int p1a : 1;
+    unsigned int p2a : 1;
+    unsigned int p3a : 1;
+    // set hand switch
+    unsigned int p1h : 1;
+    unsigned int p2h : 1;
+    unsigned int p3h : 1;
 };
 
-struct ps {
-    unsigned int ps1:1;  // 0 bit
-    unsigned int ps2:1;  // 1 bit
+struct ps
+{
+    unsigned int ps1 : 1; // 0 bit
+    unsigned int ps2 : 1; // 1 bit
 };
 
 struct pumps switchStatus;
@@ -130,23 +132,23 @@ uint8_t Read_Inputs(void)
     uint8_t i;
     uint8_t Temp = 0;
     gpio_set_level(LOAD_165, 0);
-	gpio_set_level(LOAD_165, 1);
-    for(i=0;i<8;i++)
+    gpio_set_level(LOAD_165, 1);
+    for (i = 0; i < 8; i++)
     {
         Temp <<= 1;
-        gpio_set_level(CLK_165, 0); 
+        gpio_set_level(CLK_165, 0);
         Temp |= gpio_get_level(DATA165);
-        gpio_set_level(CLK_165, 1);      
-    }  
+        gpio_set_level(CLK_165, 1);
+    }
     return Temp;
 }
 
-void switchSet (void)
+void switchSet(void)
 {
     uint8_t Inputs = 0;
     Inputs = Read_Inputs();
-    //Set auto
-    //P1
+    // Set auto
+    // P1
     if (Inputs & 0x01)
     {
         switchStatus.p1a = 0;
@@ -156,7 +158,7 @@ void switchSet (void)
         switchStatus.p1a = 1;
     }
 
-    //P2
+    // P2
     if (Inputs & 0x04)
     {
         switchStatus.p2a = 0;
@@ -165,7 +167,7 @@ void switchSet (void)
     {
         switchStatus.p2a = 1;
     }
-    //P3
+    // P3
     if (Inputs & 0x16)
     {
         switchStatus.p3a = 0;
@@ -174,8 +176,8 @@ void switchSet (void)
     {
         switchStatus.p3a = 1;
     }
-    //Set hand
-    //P1
+    // Set hand
+    // P1
     if (Inputs & 0x02)
     {
         switchStatus.p1h = 0;
@@ -184,7 +186,7 @@ void switchSet (void)
     {
         switchStatus.p1h = 1;
     }
-    //P2
+    // P2
     if (Inputs & 0x08)
     {
         switchStatus.p2h = 0;
@@ -193,7 +195,7 @@ void switchSet (void)
     {
         switchStatus.p2h = 1;
     }
-    //P3
+    // P3
     if (Inputs & 0x32)
     {
         switchStatus.p3h = 0;
@@ -203,8 +205,8 @@ void switchSet (void)
         switchStatus.p3h = 1;
     }
 
-    //Set PS
-    //PS1
+    // Set PS
+    // PS1
     if (Inputs & 0x64)
     {
         psStatus.ps1 = 0;
@@ -213,7 +215,7 @@ void switchSet (void)
     {
         psStatus.ps1 = 1;
     }
-    //PS2
+    // PS2
     if (Inputs & 0x128)
     {
         psStatus.ps2 = 0;
@@ -226,21 +228,21 @@ void switchSet (void)
 
 void shift_out(uint8_t dataPin, uint8_t clockPin, uint8_t bitOrder, uint8_t val)
 {
-  uint8_t i;
-  // send data (bits) to 74HC595N shift register
-  for (i = 0; i < 8; i++)
-  {
-    if (bitOrder == LSBFIRST)
+    uint8_t i;
+    // send data (bits) to 74HC595N shift register
+    for (i = 0; i < 8; i++)
     {
-      gpio_set_level(dataPin, !!(val & (1 << i)));
+        if (bitOrder == LSBFIRST)
+        {
+            gpio_set_level(dataPin, !!(val & (1 << i)));
+        }
+        else
+        {
+            gpio_set_level(dataPin, !!(val & (1 << (7 - i))));
+        }
+        gpio_set_level(clockPin, 1);
+        gpio_set_level(clockPin, 0);
     }
-    else
-    {
-      gpio_set_level(dataPin, !!(val & (1 << (7 - i))));
-    }
-    gpio_set_level(clockPin, 1);
-    gpio_set_level(clockPin, 0);
-  }
 }
 
 void Send_74HC595(uint8_t Num, uint8_t Seg, uint8_t out)
@@ -248,56 +250,118 @@ void Send_74HC595(uint8_t Num, uint8_t Seg, uint8_t out)
     shift_out(DATA_595, CLOCK_595, MSBFIRST, out);
     shift_out(DATA_595, CLOCK_595, MSBFIRST, Seg);
     shift_out(DATA_595, CLOCK_595, MSBFIRST, Num);
-	gpio_set_level(LATCH_595, 0);
-	gpio_set_level(LATCH_595, 1);
+    gpio_set_level(LATCH_595, 0);
+    gpio_set_level(LATCH_595, 1);
 }
 
-void Get_KEY_Value(int lvl) {
+void Get_KEY_Value(int lvl)
+{
     static TickType_t lastPressTime = 0;
-    const TickType_t debounceTime = pdMS_TO_TICKS(50); // Debounce time of 50 ms
+    const TickType_t debounceTime = pdMS_TO_TICKS(50);   // Debounce time of 50 ms
     const TickType_t pressInterval = pdMS_TO_TICKS(100); // Minimum interval between presses
     TickType_t currentTime = xTaskGetTickCount();
-    
+
     // Check if enough time has passed since the last press
-    if (currentTime - lastPressTime < pressInterval) {
+    if (currentTime - lastPressTime < pressInterval)
+    {
         return; // Exit if the minimum interval has not passed
     }
 
     uint8_t Value1 = 0;
     uint8_t Value2 = 0;
     const int samplesCount = 5; // Number of samples for debouncing
-    int matchCount = 0; // Count of matching samples
+    int matchCount = 0;         // Count of matching samples
 
     // Sample the button states multiple times
-    for (int i = 0; i < samplesCount; ++i) {
+    for (int i = 0; i < samplesCount; ++i)
+    {
         Value1 = 0;
-        if (gpio_get_level(KEY1) == 0) { Value1 |= 0x01; }
-        if (gpio_get_level(KEY2) == 0) { Value1 |= 0x02; }
-        if (gpio_get_level(KEY3) == 0) { Value1 |= 0x04; }
-        if (gpio_get_level(KEY4) == 0) { Value1 |= 0x08; }
+        if (gpio_get_level(KEY1) == 0)
+        {
+            Value1 |= 0x01;
+        }
+        if (gpio_get_level(KEY2) == 0)
+        {
+            Value1 |= 0x02;
+        }
+        if (gpio_get_level(KEY3) == 0)
+        {
+            Value1 |= 0x04;
+        }
+        if (gpio_get_level(KEY4) == 0)
+        {
+            Value1 |= 0x08;
+        }
 
         vTaskDelay(debounceTime); // Wait for debounceTime between samples
 
         // Sample the button states again to check for consistency
         Value2 = 0;
-        if (gpio_get_level(KEY1) == 0) { Value2 |= 0x01; }
-        if (gpio_get_level(KEY2) == 0) { Value2 |= 0x02; }
-        if (gpio_get_level(KEY3) == 0) { Value2 |= 0x04; }
-        if (gpio_get_level(KEY4) == 0) { Value2 |= 0x08; }
+        if (gpio_get_level(KEY1) == 0)
+        {
+            Value2 |= 0x01;
+        }
+        if (gpio_get_level(KEY2) == 0)
+        {
+            Value2 |= 0x02;
+        }
+        if (gpio_get_level(KEY3) == 0)
+        {
+            Value2 |= 0x04;
+        }
+        if (gpio_get_level(KEY4) == 0)
+        {
+            Value2 |= 0x08;
+        }
 
         // Check if the button states are consistent
-        if (Value1 == Value2) {
+        if (Value1 == Value2)
+        {
             matchCount++;
         }
     }
 
     // Proceed only if the button states were consistent in most samples
-    if (matchCount >= (samplesCount / 2 + 1)) {
+    if (matchCount >= (samplesCount / 2 + 1))
+    {
         // Perform the action for the button press
-        if (Value1 & 0x01) { if(lvl == 0){menuLevel++;}else{menuLevel = 0; }}
-        if (Value1 & 0x02) { if(menuLevel > 1){menuLevel--; }else if (lvl == 0){menuLevel++;}}
-        if (Value1 & 0x04) { menuLevel++; }
-        if (Value1 & 0x08) { if(lvl==0){menuLevel++;}else{temp = 1 - temp; }}
+        if (Value1 & 0x01)
+        {
+            if (lvl == 0)
+            {
+                menuLevel++;
+            }
+            else
+            {
+                menuLevel = 0;
+            }
+        }
+        if (Value1 & 0x02)
+        {
+            if (menuLevel > 1)
+            {
+                menuLevel--;
+            }
+            else if (lvl == 0)
+            {
+                menuLevel++;
+            }
+        }
+        if (Value1 & 0x04)
+        {
+            menuLevel++;
+        }
+        if (Value1 & 0x08)
+        {
+            if (lvl == 0)
+            {
+                menuLevel++;
+            }
+            else
+            {
+                temp = 1 - temp;
+            }
+        }
 
         // Update LED state based on any button press
         gpio_set_level(LED, Value1 ? 0 : 1);
@@ -307,16 +371,18 @@ void Get_KEY_Value(int lvl) {
     }
 }
 
-
 /*********************************************************
- * 
+ *
  *                     Messaging System
- * 
+ *
  ********************************************************/
 
-bool areMessagesEqual(int msg1[MSG_SIZE], int msg2[MSG_SIZE]) {
-    for (int i = 0; i < MSG_SIZE; i++) {
-        if (msg1[i] != msg2[i]) {
+bool areMessagesEqual(int msg1[MSG_SIZE], int msg2[MSG_SIZE])
+{
+    for (int i = 0; i < MSG_SIZE; i++)
+    {
+        if (msg1[i] != msg2[i])
+        {
             return false; // Messages are different
         }
     }
@@ -324,75 +390,77 @@ bool areMessagesEqual(int msg1[MSG_SIZE], int msg2[MSG_SIZE]) {
 }
 
 // Function to add a message to activeMsg if it's not already added
-void addMsg(int option) {
+void addMsg(int option)
+{
     int targetData[4];
     for (int i = 0; i < 4; i++)
     {
         targetData[i] = statusMessages[option][i];
     }
     // First, check if the message is already in activeMsg
-    for (int i = 0; i < msgCount; i++) {
-        if (areMessagesEqual(activeMsg[i], targetData)) {
+    for (int i = 0; i < msgCount; i++)
+    {
+        if (areMessagesEqual(activeMsg[i], targetData))
+        {
             return; // Exit the function if message is found
         }
     }
 
     // If the message is not found, add it
-    if (msgCount < MAX_MSGS) {
-        for (int i = 0; i < MSG_SIZE; i++) {
+    if (msgCount < MAX_MSGS)
+    {
+        for (int i = 0; i < MSG_SIZE; i++)
+        {
             activeMsg[msgCount][i] = targetData[i];
         }
         msgCount++;
     }
 }
 
-
-/**
- * @brief Deletes a message from the statusMessages array based on the given option.
- *
- * This function removes a message from the statusMessages array by comparing it with the targetData.
- * If a matching message is found, it is removed from the activeMessages array.
- *
- * @param option The index of the message to be removed.
- */
 void deleteMsg(int option)
 {
-  // Get the message to be removed
-  int targetData[4];
-  for (int i = 0; i < 4; i++)
-  {
-    targetData[i] = statusMessages[option][i];
-  }
-
-  for (int i = 0; i < msgCount; i++)
-  {
-    if (areMessagesEqual(activeMsg[i], targetData))
+    // Get the message to be removed
+    int targetData[4];
+    for (int i = 0; i < 4; i++)
     {
-      // If the current message matches the targetData, remove it
-      for (int j = i; j < msgCount - 1; j++)
-      {
-        for (int k = 0; k < 4; k++)
-        {
-          activeMsg[j][k] = activeMsg[j + 1][k];
-        }
-      }
-      msgCount--;
-      break; // Break out of the loop after removing the first matching message
+        targetData[i] = statusMessages[option][i];
     }
-  }
+
+    for (int i = 0; i < msgCount; i++)
+    {
+        if (areMessagesEqual(activeMsg[i], targetData))
+        {
+            // If the current message matches the targetData, remove it
+            for (int j = i; j < msgCount - 1; j++)
+            {
+                for (int k = 0; k < 4; k++)
+                {
+                    activeMsg[j][k] = activeMsg[j + 1][k];
+                }
+            }
+            msgCount--;
+            break; // Break out of the loop after removing the first matching message
+        }
+    }
 }
 
-void displayRotate(void) {    
-    if (msgCount > 0) {
+void displayRotate(void)
+{
+    if (msgCount > 0)
+    {
         // Copy the current message to curDisplay
-        for (int i = 0; i < MSG_SIZE; i++) {
+        for (int i = 0; i < MSG_SIZE; i++)
+        {
             curDisplay[i] = activeMsg[currentIndex][i];
         }
         currentIndex = (currentIndex + 1) % msgCount; // Rotate to the next message
-    } else {
+    }
+    else
+    {
         // Optionally handle the case where there are no messages
         // For example, clear curDisplay or set it to a default message
-        for (int i = 0; i < MSG_SIZE; i++) {
+        for (int i = 0; i < MSG_SIZE; i++)
+        {
             curDisplay[i] = 0; // Example of clearing curDisplay
         }
     }
@@ -413,49 +481,67 @@ void outputSend(void)
     tempPx[3] = SEG8Code[px4];
     Send_74HC595(tempPx[BitsSele], BitsSelection[BitsSele], Out_Value);
     BitsSele++;
-    if (BitsSele == 4){BitsSele = 0;}
+    if (BitsSele == 4)
+    {
+        BitsSele = 0;
+    }
 }
 
 void mainMenu(void)
 {
     Get_KEY_Value(0);
-    /* add code to clear relays and screen here*/
+    // Code to clear relays and screen here
+
     while (menuLevel > 0)
     {
-        Get_KEY_Value(1);
-        if (menuLevel == 1)
+        temp = 0;
+        switch (menuLevel)
         {
-            /* p1Active */
-            if (pumpStatus.p1a == 1)
+        case 1:
+            // p1Active
+            while (menuLevel == 1)
             {
-                temp = 1;
+                temp = (pumpStatus.p1a == 1) ? 1 : temp;
+                Get_KEY_Value(1);
+                pumpStatus.p1a = temp;
+                if (pumpStatus.p1a == 1)
+                {
+                    addMsg(2);
+                }
+                else
+                {
+                    deleteMsg(2);
+                }
+                if (pumpStatus.p1a == 0)
+                {
+                    addMsg(8);
+                }
+                else
+                {
+                    deleteMsg(8);
+                }
             }
-            addMsg(2);
-            pumpStatus.p1a = temp;
-            if (pumpStatus.p1a == 0)
-            {
-                deleteMsg(2);
-                addMsg(8);
-            }
-            else
-            {
-                deleteMsg(8);
-            }
-        }
-        else
-        {
             deleteMsg(2);
-            if (menuLevel == 2)
+            deleteMsg(8);
+            break;
+
+        case 2:
+            // p2Active
+            while (menuLevel == 2)
             {
+                temp = (pumpStatus.p2a == 1) ? 1 : temp;
+                Get_KEY_Value(1);
+                pumpStatus.p2a = temp;
                 if (pumpStatus.p2a == 1)
                 {
-                    temp = 1;
+                    addMsg(3);
                 }
-                addMsg(3);
-                pumpStatus.p2a = temp;
-                if (pumpStatus.p2a == 0)
+                else
                 {
                     deleteMsg(3);
+                }
+                if (pumpStatus.p1a == 0)
+                {
                     addMsg(9);
                 }
                 else
@@ -463,31 +549,33 @@ void mainMenu(void)
                     deleteMsg(9);
                 }
             }
-            else
-            {
-                deleteMsg(3);
-            }
-        }
+            deleteMsg(3);
+            deleteMsg(9);
+            break;
 
-        if (menuLevel == 3)
-        {
-            /* p3Active */
-            // Actions for when menuLevel is 2 are not specified
-        }
-        else if (menuLevel == 4)
-        {
-            /* alternatePump */
-            // Actions for when menuLevel is 3 are not specified
-        }
-        else if (menuLevel == 5)
-        {
-            /* ps1 enable */
-            // Actions for when menuLevel is 4 are not specified
-        }
-        else if (menuLevel == 6)
-        {
-            /* ps2 enable */
-            // Actions for when menuLevel is 5 are not specified
+        case 3:
+            // p3Active
+            // Define actions for menuLevel 3
+            break;
+
+        case 4:
+            // alternatePump
+            // Define actions for menuLevel 4
+            break;
+
+        case 5:
+            // ps1 enable
+            // Define actions for menuLevel 5
+            break;
+
+        case 6:
+            // ps2 enable
+            // Define actions for menuLevel 6
+            break;
+
+        default:
+            // Handle unexpected menuLevel values
+            break;
         }
     }
 }
@@ -496,10 +584,11 @@ static bool IRAM_ATTR io_timer_cb(gptimer_handle_t timer, const gptimer_alarm_ev
 {
     switchSet();
     outputSend();
-    if (counter == 1000){
+    if (counter == 1000)
+    {
         counter = 0;
         displayRotate();
-        }
+    }
     counter++;
     return pdTRUE;
 }
