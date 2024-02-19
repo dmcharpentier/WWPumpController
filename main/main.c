@@ -84,8 +84,7 @@ int alternatePump = 0;
 nvs_handle_t settings;
 int32_t settingVar = 0; // value will default to 0, if not set yet in NVS
 
-uint8_t SEG8Code[] =
-    {0x3f, 0x06, 0x5b, 0x4f, 0x66, 0x6d, 0x7d, 0x07, 0x7f, 0x6f, 0x77, 0x7c, 0x39, 0x58, 0x5e, 0x79, 0x71, 0x76, 0x74, 0x38, 0x54, 0x37, 0x5c, 0x73, 0x50, 0x78, 0x3e, 0x40, 0x00}; // Common anode Digital Tube Character Gallery
+uint8_t SEG8Code[] = {0x3f, 0x06, 0x5b, 0x4f, 0x66, 0x6d, 0x7d, 0x07, 0x7f, 0x6f, 0x77, 0x7c, 0x39, 0x58, 0x5e, 0x79, 0x71, 0x76, 0x74, 0x38, 0x54, 0x37, 0x5c, 0x73, 0x50, 0x78, 0x3e, 0x40, 0x00}; // Common anode Digital Tube Character Gallery
 
 // Logix Variables
 uint16_t Time_Cnt = 0;
@@ -455,60 +454,51 @@ void deleteMsg(int option)
     printBitByBit();
 }
 
-void syncActiveMessages(void)
-{
-    syncCounter++;
-    //printf("Syncing messages\n");
-    for (int option = 0; option < MAX_MSGS; ++option)
-    {
-        // Check if the message is active but not in the array
-        if ((activeMessagesMask & toggle[option]) && !(messagesInArrayMask & toggle[option]))
-        {
-            if (msgCount < MAX_MSGS)
-            {
-                // Add the message to the activeMsg array
-                for (int i = 0; i < MSG_SIZE; ++i)
-                {
-                    activeMsg[msgCount][i] = statusMessages[option][i];
+void syncActiveMessages(void) {
+    syncCounter++; // Assuming for debugging or timing.
+
+    for (int option = 0; option < MAX_MSGS; ++option) {
+        uint32_t optionMask = toggle[option];
+
+        // If message should be added.
+        if ((activeMessagesMask & optionMask) && !(messagesInArrayMask & optionMask)) {
+            if (msgCount < MAX_MSGS) {
+                // Translate statusMessages to SEG8Code and store in activeMsg.
+                for (int i = 0; i < 4; ++i) {
+                    activeMsg[msgCount][i] = SEG8Code[statusMessages[option][i]];
                 }
                 msgCount++;
-                // Mark this message as added in messagesInArrayMask
-                messagesInArrayMask &= ~toggle[option];
-            }
-            else
-            {
-                // Handle the case where activeMsg array is full
+                messagesInArrayMask |= optionMask;
+            } else {
+                // Active message array is full.
                 break;
             }
-            if (!(activeMessagesMask & toggle[option]) && (messagesInArrayMask & toggle[option]))
-            {
-                int targetData[4];
-                for (int i = 0; i < 4; i++)
-                {
-                    targetData[i] = statusMessages[option][i];
-                }
+        }
 
-                for (int i = 0; i < msgCount; i++)
-                {
-                    if (areMessagesEqual(activeMsg[i], targetData))
-                    {
-                        // If the current message matches the targetData, remove it
-                        for (int j = i; j < msgCount - 1; j++)
-                        {
-                            for (int k = 0; k < 4; k++)
-                            {
-                                activeMsg[j][k] = activeMsg[j + 1][k];
-                            }
-                        }
-                        msgCount--;
-                        messagesInArrayMask &= ~toggle[option];
-                        break; // Break out of the loop after removing the first matching message
+        // If message should be removed.
+        if (!(activeMessagesMask & optionMask) && (messagesInArrayMask & optionMask)) {
+            uint8_t targetData[4];
+            // Translate to SEG8Code for comparison.
+            for (int i = 0; i < 4; i++) {
+                targetData[i] = SEG8Code[statusMessages[option][i]];
+            }
+
+            for (int i = 0; i < msgCount; i++) {
+                if (memcmp(activeMsg[i], targetData, sizeof(targetData)) == 0) {
+                    // Shift remaining messages in activeMsg array.
+                    for (int j = i; j < msgCount - 1; j++) {
+                        memcpy(activeMsg[j], activeMsg[j + 1], 4); // Assuming each message is 4 bytes
                     }
+                    msgCount--;
+                    messagesInArrayMask &= ~optionMask;
+                    break;
                 }
             }
         }
     }
 }
+
+
 
 void displayRotate(void)
 {
@@ -887,17 +877,16 @@ void initGPIO(void)
     gpio_init(); // Initialize button handling
 
     // Start the main menu task
-    //xTaskCreate((TaskFunction_t)mainMenu, "mainMenu", 4096, NULL, 10, NULL);
 }
 
 static bool IRAM_ATTR io_timer_cb(gptimer_handle_t timer, const gptimer_alarm_event_data_t *edata, void *user_data)
 {
     switchSet();
     outputSend();
-    syncActiveMessages();
     if (counter == 500)
     {
         counter = 0;
+        syncActiveMessages();
         displayRotate();
     }
     counter++;
@@ -1014,9 +1003,9 @@ void app_main(void)
                 printf("check1\n");
                 menuLevel = 1;
                 deleteMsg(21);
-                while (menuLevel > 0)
+                if (menuLevel > 0)
                 {
-                    mainMenu();
+                    xTaskCreate((TaskFunction_t)mainMenu, "mainMenu", 4096, NULL, 10, NULL);
                 }
                 if (menuLevel == 0)
                 {
