@@ -62,6 +62,8 @@ int counter = 0; // Initialize counter
 int activeMsg[MAX_MSGS][MSG_SIZE]; // Array of arrays to store messages
 int msgCount = 0;                  // Current number of messages
 int currentIndex = 0;              // Current index for display, static to preserve its value between calls
+uint32_t activeMessagesMask = 0;  // Tracks messages currently active
+uint32_t messagesInArrayMask = 0; // Tracks messages currently in the array
 
 // Menu Variables
 #define BUTTON1_PRESS 1
@@ -529,29 +531,14 @@ bool areMessagesEqual(int msg1[MSG_SIZE], int msg2[MSG_SIZE])
 // Function to add a message to activeMsg if it's not already added
 void addMsg(int option)
 {
-    int targetData[4];
-    for (int i = 0; i < 4; i++)
+    if (activeMessagesMask & (1 << option))
     {
-        targetData[i] = statusMessages[option][i];
-    }
-    // First, check if the message is already in activeMsg
-    for (int i = 0; i < msgCount; i++)
-    {
-        if (areMessagesEqual(activeMsg[i], targetData))
-        {
-            return; // Exit the function if message is found
-        }
+        // Message is already active, no need to add it again
+        return;
     }
 
-    // If the message is not found, add it
-    if (msgCount < MAX_MSGS)
-    {
-        for (int i = 0; i < MSG_SIZE; i++)
-        {
-            activeMsg[msgCount][i] = targetData[i];
-        }
-        msgCount++;
-    }
+    // If the message is not found and there is space, mark it as active and update the array
+    activeMessagesMask |= (1 << option);
 }
 
 void deleteMsg(int option)
@@ -581,6 +568,26 @@ void deleteMsg(int option)
     }
 }
 
+void syncActiveMessages(void) {
+    for (int option = 0; option < MAX_MSGS; ++option) {
+        // Check if the message is active but not in the array
+        if ((activeMessagesMask & (1 << option)) && !(messagesInArrayMask & (1 << option))) {
+            if (msgCount < MAX_MSGS) {
+                // Add the message to the activeMsg array
+                for (int i = 0; i < MSG_SIZE; ++i) {
+                    activeMsg[msgCount][i] = statusMessages[option][i];
+                }
+                msgCount++;
+                // Mark this message as added in messagesInArrayMask
+                messagesInArrayMask |= (1 << option);
+            } else {
+                // Handle the case where activeMsg array is full
+                break;
+            }
+        }
+    }
+}
+
 void displayRotate(void)
 {
     if (msgCount > 0)
@@ -592,17 +599,6 @@ void displayRotate(void)
         }
         currentIndex = (currentIndex + 1) % msgCount; // Rotate to the next message
     }
-    /*
-    else
-    {
-        // Optionally handle the case where there are no messages
-        // For example, clear curDisplay or set it to a default message
-        for (int i = 0; i < MSG_SIZE; i++)
-        {
-            curDisplay[i] = 0; // Example of clearing curDisplay
-        }
-    }
-    */
 }
 
 /*********          Message System End          *********/
@@ -614,7 +610,7 @@ void outputSend(void)
     int px3 = curDisplay[2];
     int px4 = curDisplay[3];
     uint8_t tempPx[4] = {0};
-    tempPx[0] = SEG8Code[px1];
+    tempPx[0] = SEG8Code[menuLevel];
     tempPx[1] = SEG8Code[px2];
     tempPx[2] = SEG8Code[px3]; //| Dot;
     tempPx[3] = SEG8Code[px4];
@@ -629,220 +625,228 @@ void outputSend(void)
 void mainMenu(void)
 {
     int buttonEvent;
-    Get_KEY_Value(0);
-    // Code to clear relays and screen here
-
-    if (menuLevel > 0)
+    temp = 0;
+    switch (menuLevel)
     {
-        deleteMsg(0);
-        while (menuLevel > 0)
+    case 1:
+        // p1Active
+        while (menuLevel == 1)
         {
-            temp = 0;
-            switch (menuLevel)
+            temp = (pumpEnable.p1a == 1) ? 1 : temp;
+            if (xQueueReceive(buttonEventQueue, &buttonEvent, portMAX_DELAY))
             {
-            case 1:
-                // p1Active
-                while (menuLevel == 1)
+                // Process the button event
+                switch (buttonEvent)
                 {
-                    temp = (pumpEnable.p1a == 1) ? 1 : temp;
-                    Get_KEY_Value(1);
-                    pumpEnable.p1a = temp;
-                    if (pumpEnable.p1a == 1)
-                    {
-                        addMsg(8);
-                    }
-                    else
-                    {
-                        deleteMsg(8);
-                    }
-                    if (pumpEnable.p1a == 0)
-                    {
-                        addMsg(11);
-                    }
-                    else
-                    {
-                        deleteMsg(11);
-                    }
+                case BUTTON1_PRESS:
+                    // Handle Button 1 press
+                    menuLevel = 0;
+                    break;
+                case BUTTON2_PRESS:
+                    // Handle Button 2 press
+                    menuLevel = 1;
+                    break;
+                case BUTTON3_PRESS:
+                    // Handle Button 3 press
+                    menuLevel++;
+                    break;
+                case BUTTON4_PRESS:
+                    // Handle Button 4 press
+                    temp = 1 - temp;
+                    break;
+                    // Add cases for other button presses
                 }
-                deleteMsg(8);
-                deleteMsg(11);
-                break;
-
-            case 2:
-                // p2Active
-                while (menuLevel == 2)
+                pumpEnable.p1a = temp;
+                if (pumpEnable.p1a == 1)
                 {
-                    temp = (pumpEnable.p2a == 1) ? 1 : temp;
-                    Get_KEY_Value(1);
-                    pumpEnable.p2a = temp;
-                    if (pumpEnable.p2a == 1)
-                    {
-                        addMsg(9);
-                    }
-                    else
-                    {
-                        deleteMsg(9);
-                    }
-                    if (pumpEnable.p2a == 0)
-                    {
-                        addMsg(12);
-                    }
-                    else
-                    {
-                        deleteMsg(12);
-                    }
+                    addMsg(8);
                 }
-                deleteMsg(9);
-                deleteMsg(12);
-                break;
-
-            case 3:
-                // p3Active
-                while (menuLevel == 3)
+                else
                 {
-                    temp = (pumpEnable.p3a == 1) ? 1 : temp;
-                    Get_KEY_Value(1);
-                    pumpEnable.p3a = temp;
-                    if (pumpEnable.p3a == 1)
-                    {
-                        addMsg(10);
-                    }
-                    else
-                    {
-                        deleteMsg(10);
-                    }
-                    if (pumpEnable.p3a == 0)
-                    {
-                        addMsg(13);
-                    }
-                    else
-                    {
-                        deleteMsg(13);
-                    }
+                    deleteMsg(8);
                 }
-                deleteMsg(10);
-                deleteMsg(13);
-                break;
-
-            case 4:
-                // alternatePump
-                while (menuLevel == 4)
+                if (pumpEnable.p1a == 0)
                 {
-                    temp = (alternatePump == 1) ? 1 : temp;
-                    Get_KEY_Value(1);
-                    alternatePump = temp;
-                    if (alternatePump == 1)
-                    {
-                        addMsg(14);
-                    }
-                    else
-                    {
-                        deleteMsg(14);
-                    }
-                    if (alternatePump == 0)
-                    {
-                        addMsg(15);
-                    }
-                    else
-                    {
-                        deleteMsg(15);
-                    }
+                    addMsg(11);
                 }
-                deleteMsg(14);
-                deleteMsg(15);
-                break;
-
-            case 5:
-                // ps1 enable psEnable.ps1
-                while (menuLevel == 5)
+                else
                 {
-                    temp = (psEnable.ps1 == 1) ? 1 : temp;
-                    Get_KEY_Value(1);
-                    psEnable.ps1 = temp;
-                    if (psEnable.ps1 == 1)
-                    {
-                        addMsg(16);
-                    }
-                    else
-                    {
-                        deleteMsg(16);
-                    }
-                    if (psEnable.ps1 == 0)
-                    {
-                        addMsg(17);
-                    }
-                    else
-                    {
-                        deleteMsg(17);
-                    }
+                    deleteMsg(11);
                 }
-                deleteMsg(16);
-                deleteMsg(17);
-                break;
-
-            case 6:
-                // ps2 enable
-                while (menuLevel == 6)
-                {
-                    temp = (psEnable.ps2 == 1) ? 1 : temp;
-                    Get_KEY_Value(1);
-                    psEnable.ps2 = temp;
-                    if (psEnable.ps2 == 1)
-                    {
-                        addMsg(18);
-                    }
-                    else
-                    {
-                        deleteMsg(18);
-                    }
-                    if (psEnable.ps2 == 0)
-                    {
-                        addMsg(19);
-                    }
-                    else
-                    {
-                        deleteMsg(19);
-                    }
-                }
-                deleteMsg(18);
-                deleteMsg(19);
-                break;
-
-            default:
-                menuLevel = 1;
-                break;
             }
         }
-        if (menuLevel == 0)
+        deleteMsg(8);
+        deleteMsg(11);
+        break;
+
+    case 2:
+        // p2Active
+        while (menuLevel == 2)
         {
-            updateNvsVar();
-            setNvs();
-            addMsg(0);
+            temp = (pumpEnable.p2a == 1) ? 1 : temp;
+            Get_KEY_Value(1);
+            pumpEnable.p2a = temp;
+            if (pumpEnable.p2a == 1)
+            {
+                addMsg(9);
+            }
+            else
+            {
+                deleteMsg(9);
+            }
+            if (pumpEnable.p2a == 0)
+            {
+                addMsg(12);
+            }
+            else
+            {
+                deleteMsg(12);
+            }
         }
+        deleteMsg(9);
+        deleteMsg(12);
+        break;
+
+    case 3:
+        // p3Active
+        while (menuLevel == 3)
+        {
+            temp = (pumpEnable.p3a == 1) ? 1 : temp;
+            Get_KEY_Value(1);
+            pumpEnable.p3a = temp;
+            if (pumpEnable.p3a == 1)
+            {
+                addMsg(10);
+            }
+            else
+            {
+                deleteMsg(10);
+            }
+            if (pumpEnable.p3a == 0)
+            {
+                addMsg(13);
+            }
+            else
+            {
+                deleteMsg(13);
+            }
+        }
+        deleteMsg(10);
+        deleteMsg(13);
+        break;
+
+    case 4:
+        // alternatePump
+        while (menuLevel == 4)
+        {
+            temp = (alternatePump == 1) ? 1 : temp;
+            Get_KEY_Value(1);
+            alternatePump = temp;
+            if (alternatePump == 1)
+            {
+                addMsg(14);
+            }
+            else
+            {
+                deleteMsg(14);
+            }
+            if (alternatePump == 0)
+            {
+                addMsg(15);
+            }
+            else
+            {
+                deleteMsg(15);
+            }
+        }
+        deleteMsg(14);
+        deleteMsg(15);
+        break;
+
+    case 5:
+        // ps1 enable psEnable.ps1
+        while (menuLevel == 5)
+        {
+            temp = (psEnable.ps1 == 1) ? 1 : temp;
+            Get_KEY_Value(1);
+            psEnable.ps1 = temp;
+            if (psEnable.ps1 == 1)
+            {
+                addMsg(16);
+            }
+            else
+            {
+                deleteMsg(16);
+            }
+            if (psEnable.ps1 == 0)
+            {
+                addMsg(17);
+            }
+            else
+            {
+                deleteMsg(17);
+            }
+        }
+        deleteMsg(16);
+        deleteMsg(17);
+        break;
+
+    case 6:
+        // ps2 enable
+        while (menuLevel == 6)
+        {
+            temp = (psEnable.ps2 == 1) ? 1 : temp;
+            Get_KEY_Value(1);
+            psEnable.ps2 = temp;
+            if (psEnable.ps2 == 1)
+            {
+                addMsg(18);
+            }
+            else
+            {
+                deleteMsg(18);
+            }
+            if (psEnable.ps2 == 0)
+            {
+                addMsg(19);
+            }
+            else
+            {
+                deleteMsg(19);
+            }
+        }
+        deleteMsg(18);
+        deleteMsg(19);
+        break;
+
+    default:
+        menuLevel = 1;
+        break;
     }
 }
 
-void initMenu(void)
+void initGPIO(void)
 {
     // Initialize NVS
-    esp_err_t ret = nvs_flash_init();
-    if (ret == ESP_ERR_NVS_NO_FREE_PAGES || ret == ESP_ERR_NVS_NEW_VERSION_FOUND) {
+    esp_err_t err = nvs_flash_init();
+    if (err == ESP_ERR_NVS_NO_FREE_PAGES || err == ESP_ERR_NVS_NEW_VERSION_FOUND) {
       //ESP_ERROR_CHECK(nvs_flash_erase());
-      ret = nvs_flash_init();
+      err = nvs_flash_init();
     }
-    ESP_ERROR_CHECK(ret);
+    ESP_ERROR_CHECK(err);
 
     gpio_init(); // Initialize button handling
 
     // Start the main menu task
-    xTaskCreate((TaskFunction_t)mainMenu, "mainMenu", 4096, NULL, 10, NULL);
+    //xTaskCreate((TaskFunction_t)mainMenu, "mainMenu", 4096, NULL, 10, NULL);
 }
 
 static bool IRAM_ATTR io_timer_cb(gptimer_handle_t timer, const gptimer_alarm_event_data_t *edata, void *user_data)
 {
     switchSet();
     outputSend();
-    if (counter == 100)
+    syncActiveMessages();
+    if (counter == 500)
     {
         counter = 0;
         displayRotate();
@@ -885,44 +889,86 @@ void ioTimerInit(void)
 void ioConfig(void)
 {
     // zero-initialize the config structure.
-    gpio_config_t io_conf = {};
+    gpio_config_t io_conf1 = {};
     // set as output mode
-    io_conf.mode = GPIO_MODE_OUTPUT;
+    io_conf1.mode = GPIO_MODE_OUTPUT;
     // bit mask of the pins that you want to set,e.g.GPIO18/19
-    io_conf.pin_bit_mask = GPIO_OUTPUT_PIN_SEL;
+    io_conf1.pin_bit_mask = GPIO_OUTPUT_PIN_SEL;
     // disable pull-down mode
-    io_conf.pull_down_en = 0;
+    io_conf1.pull_down_en = 0;
     // disable pull-up mode
-    io_conf.pull_up_en = 0;
+    io_conf1.pull_up_en = 0;
     // configure GPIO with the given settings
-    gpio_config(&io_conf);
+    gpio_config(&io_conf1);
     gpio_set_level(OE_595, 1);
     Send_74HC595(0, 0, 0);
     gpio_set_level(OE_595, 0);
     gpio_set_level(LED, 1);
 
     // bit mask of the pins, use GPIO4/5 here
-    io_conf.pin_bit_mask = GPIO_INPUT_PIN_SEL;
+    io_conf1.pin_bit_mask = GPIO_INPUT_PIN_SEL;
     // set as input mode
-    io_conf.mode = GPIO_MODE_INPUT;
+    io_conf1.mode = GPIO_MODE_INPUT;
     // enable pull-up mode
-    io_conf.pull_up_en = 1;
-    gpio_config(&io_conf);
+    io_conf1.pull_up_en = 1;
+    gpio_config(&io_conf1);
 
     // bit mask of the pins, use GPIO4/5 here
-    io_conf.pin_bit_mask = DATA165;
+    io_conf1.pin_bit_mask = DATA165;
     // set as input mode
-    io_conf.mode = GPIO_MODE_INPUT;
+    io_conf1.mode = GPIO_MODE_INPUT;
     // disable pull-up mode
-    io_conf.pull_up_en = 0;
-    gpio_config(&io_conf);
+    io_conf1.pull_up_en = 0;
+    gpio_config(&io_conf1);
 }
 
 void app_main(void)
 {
+    int buttonEvent;
     ioConfig();
     ioTimerInit();
     initReadNvs();
     addMsg(0);
-    initMenu();
+    initGPIO();
+    while (1)
+    {
+        if (xQueueReceive(buttonEventQueue, &buttonEvent, portMAX_DELAY))
+        {
+            // Process the button event
+            switch (buttonEvent)
+            {
+            case BUTTON1_PRESS:
+                // Handle Button 1 press
+                menuLevel++;
+                break;
+            case BUTTON2_PRESS:
+                // Handle Button 2 press
+                menuLevel++;
+                break;
+            case BUTTON3_PRESS:
+                // Handle Button 3 press
+                menuLevel++;
+                break;
+            case BUTTON4_PRESS:
+                // Handle Button 4 press
+                menuLevel++;
+                break;
+                // Add cases for other button presses
+            }
+            if (menuLevel > 0)
+            {
+                deleteMsg(0);
+                while (menuLevel > 0)
+                {
+                    mainMenu();
+                }
+                if (menuLevel == 0)
+                {
+                    updateNvsVar();
+                    setNvs();
+                    addMsg(0);
+                }
+            }
+        }
+    }
 }
