@@ -64,10 +64,15 @@ int msgCount = 0;                  // Current number of messages
 int currentIndex = 0;              // Current index for display, static to preserve its value between calls
 
 // Menu Variables
-// int isMenu = 1;
+#define BUTTON1_PRESS 1
+#define BUTTON2_PRESS 2
+#define BUTTON3_PRESS 3
+#define BUTTON4_PRESS 4
+QueueHandle_t buttonEventQueue = NULL;
 volatile int menuLevel = 0;
 volatile int temp = 0;
 int alternatePump = 0;
+
 
 // NVS Variables
 nvs_handle_t settings;
@@ -82,6 +87,57 @@ uint8_t Out_Value = 0;
 uint8_t Out_Cnt = 0;
 uint8_t Value = 0;
 uint8_t Relays = 0;
+
+// ISR handler for button presses
+static void IRAM_ATTR gpio_isr_handler(void* arg) {
+    int buttonNum = (int)arg;
+    int event = 0;
+    switch (buttonNum) {
+        case KEY1:
+            event = BUTTON1_PRESS;
+            break;
+        case KEY2:
+            event = BUTTON2_PRESS;
+            break;
+        case KEY3:
+            event = BUTTON3_PRESS;
+            break;
+        case KEY4:
+            event = BUTTON4_PRESS;
+            break;
+        // Add cases for other buttons
+    }
+    BaseType_t xHigherPriorityTaskWoken = pdFALSE;
+    xQueueSendFromISR(buttonEventQueue, &event, &xHigherPriorityTaskWoken);
+    if(xHigherPriorityTaskWoken) {
+        portYIELD_FROM_ISR(); // Ensure higher priority tasks are executed immediately
+    }
+}
+
+// Initialize GPIO and ISR for button handling
+void gpio_init(void) {
+    gpio_config_t io_conf;
+    // Zeroing the config structure
+    memset(&io_conf, 0, sizeof(gpio_config_t));
+
+    // Configure GPIOs for input, pull-up, and interrupt on falling edge
+    io_conf.intr_type = GPIO_INTR_NEGEDGE;
+    io_conf.mode = GPIO_MODE_INPUT;
+    io_conf.pin_bit_mask = (1ULL<<KEY1) | (1ULL<<KEY2) | (1ULL<<KEY3) | (1ULL<<KEY4); // Repeat for other buttons
+    io_conf.pull_up_en = 1;
+    gpio_config(&io_conf);
+
+    // Initialize the queue
+    buttonEventQueue = xQueueCreate(10, sizeof(int));
+
+    // Install ISR service and add handlers for each button
+    gpio_install_isr_service(0);
+    gpio_isr_handler_add(KEY1, gpio_isr_handler, (void*)KEY1);
+    gpio_isr_handler_add(KEY2, gpio_isr_handler, (void*)KEY2);
+    gpio_isr_handler_add(KEY3, gpio_isr_handler, (void*)KEY3);
+    gpio_isr_handler_add(KEY4, gpio_isr_handler, (void*)KEY4);
+    // Repeat for other buttons
+}
 
 struct pumps
 {
@@ -572,13 +628,12 @@ void outputSend(void)
 
 void mainMenu(void)
 {
+    int buttonEvent;
     Get_KEY_Value(0);
     // Code to clear relays and screen here
 
     if (menuLevel > 0)
     {
-        // Code to display menu here
-        // Code to handle menu input
         deleteMsg(0);
         while (menuLevel > 0)
         {
@@ -767,6 +822,22 @@ void mainMenu(void)
     }
 }
 
+void initMenu(void)
+{
+    // Initialize NVS
+    esp_err_t ret = nvs_flash_init();
+    if (ret == ESP_ERR_NVS_NO_FREE_PAGES || ret == ESP_ERR_NVS_NEW_VERSION_FOUND) {
+      //ESP_ERROR_CHECK(nvs_flash_erase());
+      ret = nvs_flash_init();
+    }
+    ESP_ERROR_CHECK(ret);
+
+    gpio_init(); // Initialize button handling
+
+    // Start the main menu task
+    xTaskCreate((TaskFunction_t)mainMenu, "mainMenu", 4096, NULL, 10, NULL);
+}
+
 static bool IRAM_ATTR io_timer_cb(gptimer_handle_t timer, const gptimer_alarm_event_data_t *edata, void *user_data)
 {
     switchSet();
@@ -811,7 +882,7 @@ void ioTimerInit(void)
     ESP_ERROR_CHECK(gptimer_start(gptimer));
 }
 
-void app_main(void)
+void ioConfig(void)
 {
     // zero-initialize the config structure.
     gpio_config_t io_conf = {};
@@ -845,12 +916,13 @@ void app_main(void)
     // disable pull-up mode
     io_conf.pull_up_en = 0;
     gpio_config(&io_conf);
+}
 
+void app_main(void)
+{
+    ioConfig();
     ioTimerInit();
     initReadNvs();
     addMsg(0);
-    while (1)
-    {
-        mainMenu();
-    }
+    initMenu();
 }
