@@ -22,10 +22,16 @@
 #define CLK_165 17
 #define GPIO_OUTPUT_PIN_SEL ((1ULL << CLOCK_595) | (1ULL << LATCH_595) | (1ULL << DATA_595) | (1ULL << OE_595) | (1ULL << LED) | (1ULL << LOAD_165) | (1ULL << CLK_165))
 
+/*
 #define KEY1 18
 #define KEY2 19
 #define KEY3 21
 #define KEY4 23
+*/
+#define KEY1 GPIO_NUM_18
+#define KEY2 GPIO_NUM_19
+#define KEY3 GPIO_NUM_21
+#define KEY4 GPIO_NUM_23
 #define DATA165 5
 #define GPIO_INPUT_PIN_SEL ((1ULL << KEY1) | (1ULL << KEY2) | (1ULL << KEY3) | (1ULL << KEY4))
 
@@ -59,8 +65,8 @@ int currentIndex = 0;              // Current index for display, static to prese
 
 // Menu Variables
 // int isMenu = 1;
-uint8_t menuLevel = 0;
-int temp = 0;
+volatile int menuLevel = 0;
+volatile int temp = 0;
 int alternatePump = 0;
 
 // NVS Variables
@@ -530,6 +536,7 @@ void displayRotate(void)
         }
         currentIndex = (currentIndex + 1) % msgCount; // Rotate to the next message
     }
+    /*
     else
     {
         // Optionally handle the case where there are no messages
@@ -539,6 +546,7 @@ void displayRotate(void)
             curDisplay[i] = 0; // Example of clearing curDisplay
         }
     }
+    */
 }
 
 /*********          Message System End          *********/
@@ -746,7 +754,7 @@ void mainMenu(void)
                 break;
 
             default:
-                menuLevel = 0;
+                menuLevel = 1;
                 break;
             }
         }
