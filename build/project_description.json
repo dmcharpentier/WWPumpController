@@ -1,7 +1,7 @@
 {
     "version":            "1",
     "project_name":       "WWPumpController",
-    "project_version":    "1",
+    "project_version":    "a5e8bef-dirty",
     "project_path":       "C:/Coding/Code/ESP32/WWPumpController",
     "idf_path":           "C:/Users/Dylan/esp/v5.1.1/esp-idf",
     "build_dir":          "C:/Coding/Code/ESP32/WWPumpController/build",
