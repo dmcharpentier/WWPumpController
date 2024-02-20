@@ -45,7 +45,6 @@
 static const char *TAG = "Ctrl";
 
 uint8_t BitsSelection[4] = {0xFE, 0xFD, 0xFB, 0xF7};
-uint8_t curDisplay[4] = {0};
 uint8_t Dot = 0x80;
 uint8_t BitsSele = 0;
 
@@ -57,11 +56,16 @@ int counter = 0; // Initialize counter
 #define MSBFIRST 1
 
 // Message Variables
-#define MAX_MSGS 4                 // Maximum number of messages
-#define MSG_SIZE 4                 // Size of each message
-int activeMsg[MAX_MSGS][MSG_SIZE]; // Array of arrays to store messages
-int msgCount = 0;                  // Current number of messages
-int currentIndex = 0;              // Current index for display, static to preserve its value between calls
+#define MAX_MSGS 10                 // Adjust as needed
+#define MSG_SIZE 4                  // Number of segments per message
+#define SEGMENT_CODES 29            // Number of entries in SEG8Code
+typedef struct {
+    uint8_t segments[MSG_SIZE];
+} Message;
+Message activeMsg[MAX_MSGS];
+uint8_t curDisplay[MSG_SIZE];
+int msgCount = 0;
+int currentIndex = 0;
 int syncCounter = 0;          // Counter to sync messages
 uint32_t activeMessagesMask = 0;  // Tracks messages currently active
 uint32_t messagesInArrayMask = 0; // Tracks messages currently in the array
@@ -229,14 +233,10 @@ void setNvs(void)
     esp_err_t err = nvs_flash_init();
     // Write
     err = nvs_open("storage", NVS_READWRITE, &settings);
-    printf("Updating settings in NVS ... ");
     err = nvs_set_i32(settings, "settings", settingVar);
-    printf((err != ESP_OK) ? "Failed!\n" : "Done\n");
 
     // Commit written value.
-    printf("Committing updates in NVS ... ");
     err = nvs_commit(settings);
-    printf((err != ESP_OK) ? "Failed!\n" : "Done\n");
 
     // Close
     nvs_close(settings);
@@ -403,115 +403,96 @@ const int statusMessages[][4] = {
     {28, 27, 27, 28} // " -- " 21
 };
 
-bool areMessagesEqual(int msg1[MSG_SIZE], int msg2[MSG_SIZE])
-{
-    for (int i = 0; i < MSG_SIZE; i++)
-    {
-        if (msg1[i] != msg2[i])
-        {
-            return false; // Messages are different
-        }
+// Function to translate a statusMessage code to a Message struct
+Message translateToMessage(const int statusMessageIndex) {
+    Message msg;
+    for (int i = 0; i < MSG_SIZE; ++i) {
+        msg.segments[i] = SEG8Code[statusMessages[statusMessageIndex][i]];
     }
-    return true; // Messages are equal
+    return msg;
 }
 
-void printBitByBit(){
+// Compares two messages for equality
+bool areMessagesEqual(Message msg1, Message msg2) {
+    for (int i = 0; i < MSG_SIZE; i++) {
+        if (msg1.segments[i] != msg2.segments[i]) {
+            return false;
+        }
+    }
+    return true;
+}
+
+void printBitByBit(u_int32_t printable){
 
     // READ_PERI_REG is the ESP32 function to read DR_REG_RNG_BASE
     int i;
-    for (i = 1; i <= 32; i++){ 
-      int mask =  1 << i;
-      int masked_n = activeMessagesMask & mask;
+    for (i = 1; i < 32; i++){ 
+      int mask =  toggle[i-1];
+      int masked_n = printable & mask;
       int thebit = masked_n >> i;   
       printf("%i", thebit);
     }
     printf("\n");
 }
 
-// Function to add a message to activeMsg if it's not already added
-void addMsg(int option)
-{
-    if (activeMessagesMask & toggle[option])
-    {
-        // Message is already active, no need to add it again
-        return;
-    }
-
-    // If the message is not found and there is space, mark it as active and update the array
-    activeMessagesMask |= toggle[option];
-    printf("Adding message %d\n", option);
-    printBitByBit();
-}
-
-void deleteMsg(int option)
-{
-    // Get the message to be removed
-    if (activeMessagesMask & toggle[option])
-    {
+void setMessage (int option, bool value) {
+    if (value) {
+        activeMessagesMask |= toggle[option];
+    } else {
         activeMessagesMask &= ~toggle[option];
-        printf("Deleting message %d\n", option);
     }
-    printBitByBit();
 }
 
-void syncActiveMessages(void) {
-    syncCounter++; // Assuming for debugging or timing.
+// Function to add a message to activeMsg if it's not already added
+void addMsg(int option) {
+    if (!(messagesInArrayMask & toggle[option])) { // Check if message is not already active
+        if (msgCount < MAX_MSGS) {
+            activeMsg[msgCount] = translateToMessage(option);
+            msgCount++;
+            messagesInArrayMask |= toggle[option]; // Mark as active
+        }
+    }
+}
 
-    for (int option = 0; option < MAX_MSGS; ++option) {
-        uint32_t optionMask = toggle[option];
-
-        // If message should be added.
-        if ((activeMessagesMask & optionMask) && !(messagesInArrayMask & optionMask)) {
-            if (msgCount < MAX_MSGS) {
-                // Translate statusMessages to SEG8Code and store in activeMsg.
-                for (int i = 0; i < 4; ++i) {
-                    activeMsg[msgCount][i] = SEG8Code[statusMessages[option][i]];
+void deleteMsg(int option) {
+    if (messagesInArrayMask & toggle[option]) {
+        // Find and remove the message from activeMsg
+        for (int i = 0; i < msgCount; i++) {
+            if (areMessagesEqual(activeMsg[i], translateToMessage(option))) {
+                for (int j = i; j < msgCount - 1; j++) {
+                    activeMsg[j] = activeMsg[j + 1]; // Shift messages down
                 }
-                msgCount++;
-                messagesInArrayMask |= optionMask;
-            } else {
-                // Active message array is full.
+                msgCount--;
+                messagesInArrayMask &= ~toggle[option]; // Clear from mask
                 break;
             }
         }
+    }
+}
 
-        // If message should be removed.
-        if (!(activeMessagesMask & optionMask) && (messagesInArrayMask & optionMask)) {
-            uint8_t targetData[4];
-            // Translate to SEG8Code for comparison.
-            for (int i = 0; i < 4; i++) {
-                targetData[i] = SEG8Code[statusMessages[option][i]];
-            }
-
-            for (int i = 0; i < msgCount; i++) {
-                if (memcmp(activeMsg[i], targetData, sizeof(targetData)) == 0) {
-                    // Shift remaining messages in activeMsg array.
-                    for (int j = i; j < msgCount - 1; j++) {
-                        memcpy(activeMsg[j], activeMsg[j + 1], 4); // Assuming each message is 4 bytes
-                    }
-                    msgCount--;
-                    messagesInArrayMask &= ~optionMask;
-                    break;
-                }
-            }
+// Synchronizes the active messages with the display array
+void syncActiveMessages(void) {
+    uint32_t currentMask = activeMessagesMask;
+    for (int option = 0; option < MAX_MSGS; option++) {
+        uint32_t mask = toggle[option];
+        if ((currentMask & mask) && !(messagesInArrayMask & mask)) {
+            addMsg(option);
+        } else if (!(currentMask & mask) && (messagesInArrayMask & mask)) {
+            deleteMsg(option);
         }
     }
 }
 
-
-
-void displayRotate(void)
-{
-    if (msgCount > 0)
-    {
-        // Copy the current message to curDisplay
-        for (int i = 0; i < MSG_SIZE; i++)
-        {
-            curDisplay[i] = activeMsg[currentIndex][i];
+void displayRotate(void) {
+    if (msgCount > 0) {
+        // Copy the current message's segment codes to curDisplay
+        for (int i = 0; i < MSG_SIZE; i++) {
+            curDisplay[i] = activeMsg[currentIndex].segments[i];
         }
         currentIndex = (currentIndex + 1) % msgCount; // Rotate to the next message
     }
 }
+
 
 /*********          Message System End          *********/
 
@@ -536,331 +517,368 @@ void outputSend(void)
 
 void mainMenu(void)
 {
+    int cntr = 0;
     int buttonEvent;
-    switch (menuLevel)
+    while (1)
     {
-    case 1:
-        // p1Active
-        temp = (pumpEnable.p1a == 1) ? 1 : temp;
-        while (menuLevel == 1)
+        if (cntr == 1000)
         {
-            pumpEnable.p1a = temp;
-            switch (pumpEnable.p1a)
-            {
-            case 0:
-                addMsg(11);
-                deleteMsg(8);
-                break;
-            case 1:
-                addMsg(8);
-                deleteMsg(11);
-                break;
-            }
+            cntr = 0;
+            printf("Menu Level: %d\n", menuLevel);
+            printBitByBit(activeMessagesMask);
+            printBitByBit(messagesInArrayMask);
+        }
+        cntr++;
+        switch (menuLevel)
+        {
+        case 0:
             if (xQueueReceive(buttonEventQueue, &buttonEvent, portMAX_DELAY))
             {
-                printf("Button check should be in progress\n");
                 // Process the button event
                 switch (buttonEvent)
                 {
                 case BUTTON1_PRESS:
                     // Handle Button 1 press
-                    menuLevel = 0;
+                    menuLevel++;
+                    setMessage(21,0);
                     break;
                 case BUTTON2_PRESS:
                     // Handle Button 2 press
-                    menuLevel = 1;
+                    menuLevel++;
+                    setMessage(21,0);
                     break;
                 case BUTTON3_PRESS:
                     // Handle Button 3 press
                     menuLevel++;
+                    setMessage(21,0);
                     break;
                 case BUTTON4_PRESS:
                     // Handle Button 4 press
-                    //printf(temp);
-                    temp = 1 - temp;
-                    printf("P1A: %d\n", temp);
+                    menuLevel++;
+                    setMessage(21,0);
                     break;
                     // Add cases for other button presses
                 }
             }
-        }
-        deleteMsg(8);
-        deleteMsg(11);
-        break;
-
-    case 2:
-        // p2Active
-        while (menuLevel == 2)
-        {
-            temp = (pumpEnable.p2a == 1) ? 1 : temp;
-            pumpEnable.p2a = temp;
-            if (pumpEnable.p2a == 1)
+            break;
+        case 1:
+            // p1Active
+            temp = (pumpEnable.p1a == 1) ? 1 : temp;
+            while (menuLevel == 1)
             {
-                addMsg(9);
-            }
-            else
-            {
-                deleteMsg(9);
-            }
-            if (pumpEnable.p2a == 0)
-            {
-                addMsg(12);
-            }
-            else
-            {
-                deleteMsg(12);
-            }
-            if (xQueueReceive(buttonEventQueue, &buttonEvent, portMAX_DELAY))
-            {
-                printf("Button check2 should be in progress\n");
-                // Process the button event
-                switch (buttonEvent)
+                pumpEnable.p1a = temp;
+                switch (pumpEnable.p1a)
                 {
-                case BUTTON1_PRESS:
-                    // Handle Button 1 press
-                    menuLevel = 0;
+                case 0:
+                    setMessage(11, 1);
+                    setMessage(8, 0);
                     break;
-                case BUTTON2_PRESS:
-                    // Handle Button 2 press
-                    menuLevel--;
+                case 1:
+                    setMessage(8, 1);
+                    setMessage(11, 0);
                     break;
-                case BUTTON3_PRESS:
-                    // Handle Button 3 press
-                    menuLevel++;
-                    break;
-                case BUTTON4_PRESS:
-                    // Handle Button 4 press
-                    //printf(temp);
-                    temp = 1 - temp;
-                    printf("P1A: %d\n", temp);
-                    break;
-                    // Add cases for other button presses
                 }
-            }
-        }
-        deleteMsg(9);
-        deleteMsg(12);
-        break;
-
-    case 3:
-        // p3Active
-        while (menuLevel == 3)
-        {
-            temp = (pumpEnable.p3a == 1) ? 1 : temp;
-            pumpEnable.p3a = temp;
-            if (pumpEnable.p3a == 1)
-            {
-                addMsg(10);
-            }
-            else
-            {
-                deleteMsg(10);
-            }
-            if (pumpEnable.p3a == 0)
-            {
-                addMsg(13);
-            }
-            else
-            {
-                deleteMsg(13);
-            }
-            if (xQueueReceive(buttonEventQueue, &buttonEvent, portMAX_DELAY))
-            {
-                printf("Button check2 should be in progress\n");
-                // Process the button event
-                switch (buttonEvent)
+                if (xQueueReceive(buttonEventQueue, &buttonEvent, portMAX_DELAY))
                 {
-                case BUTTON1_PRESS:
-                    // Handle Button 1 press
-                    menuLevel = 0;
-                    break;
-                case BUTTON2_PRESS:
-                    // Handle Button 2 press
-                    menuLevel--;
-                    break;
-                case BUTTON3_PRESS:
-                    // Handle Button 3 press
-                    menuLevel++;
-                    break;
-                case BUTTON4_PRESS:
-                    // Handle Button 4 press
-                    //printf(temp);
-                    temp = 1 - temp;
-                    printf("P1A: %d\n", temp);
-                    break;
-                    // Add cases for other button presses
+                    // Process the button event
+                    switch (buttonEvent)
+                    {
+                    case BUTTON1_PRESS:
+                        // Handle Button 1 press
+                        menuLevel = 99;
+                        break;
+                    case BUTTON2_PRESS:
+                        // Handle Button 2 press
+                        menuLevel = 1;
+                        break;
+                    case BUTTON3_PRESS:
+                        // Handle Button 3 press
+                        menuLevel++;
+                        break;
+                    case BUTTON4_PRESS:
+                        // Handle Button 4 press
+                        // printf(temp);
+                        temp = 1 - temp;
+                        break;
+                        // Add cases for other button presses
+                    }
                 }
             }
-        }
-        deleteMsg(10);
-        deleteMsg(13);
-        break;
+            setMessage(8, 0);
+            setMessage(11, 0);
+            break;
 
-    case 4:
-        // alternatePump
-        while (menuLevel == 4)
-        {
-            temp = (alternatePump == 1) ? 1 : temp;
-            alternatePump = temp;
-            if (alternatePump == 1)
+        case 2:
+            // p2Active
+            while (menuLevel == 2)
             {
-                addMsg(14);
-            }
-            else
-            {
-                deleteMsg(14);
-            }
-            if (alternatePump == 0)
-            {
-                addMsg(15);
-            }
-            else
-            {
-                deleteMsg(15);
-            }
-            if (xQueueReceive(buttonEventQueue, &buttonEvent, portMAX_DELAY))
-            {
-                printf("Button check2 should be in progress\n");
-                // Process the button event
-                switch (buttonEvent)
+                temp = (pumpEnable.p2a == 1) ? 1 : temp;
+                pumpEnable.p2a = temp;
+                if (pumpEnable.p2a == 1)
                 {
-                case BUTTON1_PRESS:
-                    // Handle Button 1 press
-                    menuLevel = 0;
-                    break;
-                case BUTTON2_PRESS:
-                    // Handle Button 2 press
-                    menuLevel--;
-                    break;
-                case BUTTON3_PRESS:
-                    // Handle Button 3 press
-                    menuLevel++;
-                    break;
-                case BUTTON4_PRESS:
-                    // Handle Button 4 press
-                    //printf(temp);
-                    temp = 1 - temp;
-                    printf("P1A: %d\n", temp);
-                    break;
-                    // Add cases for other button presses
+                    setMessage(9, 1);
                 }
-            }
-        }
-        deleteMsg(14);
-        deleteMsg(15);
-        break;
-
-    case 5:
-        // ps1 enable psEnable.ps1
-        while (menuLevel == 5)
-        {
-            temp = (psEnable.ps1 == 1) ? 1 : temp;
-            psEnable.ps1 = temp;
-            if (psEnable.ps1 == 1)
-            {
-                addMsg(16);
-            }
-            else
-            {
-                deleteMsg(16);
-            }
-            if (psEnable.ps1 == 0)
-            {
-                addMsg(17);
-            }
-            else
-            {
-                deleteMsg(17);
-            }
-            if (xQueueReceive(buttonEventQueue, &buttonEvent, portMAX_DELAY))
-            {
-                printf("Button check2 should be in progress\n");
-                // Process the button event
-                switch (buttonEvent)
+                else
                 {
-                case BUTTON1_PRESS:
-                    // Handle Button 1 press
-                    menuLevel = 0;
-                    break;
-                case BUTTON2_PRESS:
-                    // Handle Button 2 press
-                    menuLevel--;
-                    break;
-                case BUTTON3_PRESS:
-                    // Handle Button 3 press
-                    menuLevel++;
-                    break;
-                case BUTTON4_PRESS:
-                    // Handle Button 4 press
-                    //printf(temp);
-                    temp = 1 - temp;
-                    printf("P1A: %d\n", temp);
-                    break;
-                    // Add cases for other button presses
+                    setMessage(9, 0);
                 }
-            }
-        }
-        deleteMsg(16);
-        deleteMsg(17);
-        break;
-
-    case 6:
-        // ps2 enable
-        temp = (psEnable.ps2 == 1) ? 1 : temp;
-        while (menuLevel == 6)
-        {
-            psEnable.ps2 = temp;
-            if (psEnable.ps2 == 1)
-            {
-                addMsg(18);
-            }
-            else
-            {
-                deleteMsg(18);
-            }
-            if (psEnable.ps2 == 0)
-            {
-                addMsg(19);
-            }
-            else
-            {
-                deleteMsg(19);
-            }
-            if (xQueueReceive(buttonEventQueue, &buttonEvent, portMAX_DELAY))
-            {
-                printf("Button check2 should be in progress\n");
-                // Process the button event
-                switch (buttonEvent)
+                if (pumpEnable.p2a == 0)
                 {
-                case BUTTON1_PRESS:
-                    // Handle Button 1 press
-                    menuLevel = 0;
-                    break;
-                case BUTTON2_PRESS:
-                    // Handle Button 2 press
-                    menuLevel--;
-                    break;
-                case BUTTON3_PRESS:
-                    // Handle Button 3 press
-                    menuLevel++;
-                    break;
-                case BUTTON4_PRESS:
-                    // Handle Button 4 press
-                    //printf(temp);
-                    temp = 1 - temp;
-                    printf("P1A: %d\n", temp);
-                    break;
-                    // Add cases for other button presses
+                    setMessage(12, 1);
+                }
+                else
+                {
+                    setMessage(12, 0);
+                }
+                if (xQueueReceive(buttonEventQueue, &buttonEvent, portMAX_DELAY))
+                {
+                    // Process the button event
+                    switch (buttonEvent)
+                    {
+                    case BUTTON1_PRESS:
+                        // Handle Button 1 press
+                        menuLevel = 99;
+                        break;
+                    case BUTTON2_PRESS:
+                        // Handle Button 2 press
+                        menuLevel--;
+                        break;
+                    case BUTTON3_PRESS:
+                        // Handle Button 3 press
+                        menuLevel++;
+                        break;
+                    case BUTTON4_PRESS:
+                        // Handle Button 4 press
+                        // printf(temp);
+                        temp = 1 - temp;
+                        break;
+                        // Add cases for other button presses
+                    }
                 }
             }
-        }
-        deleteMsg(18);
-        deleteMsg(19);
-        break;
+            setMessage(9, 0);
+            setMessage(12, 0);
+            break;
 
-    default:
-        menuLevel = 1;
-        break;
+        case 3:
+            // p3Active
+            while (menuLevel == 3)
+            {
+                temp = (pumpEnable.p3a == 1) ? 1 : temp;
+                pumpEnable.p3a = temp;
+                if (pumpEnable.p3a == 1)
+                {
+                    setMessage(10, 1);
+                }
+                else
+                {
+                    setMessage(10, 0);
+                }
+                if (pumpEnable.p3a == 0)
+                {
+                    setMessage(13, 1);
+                }
+                else
+                {
+                    setMessage(13, 0);
+                }
+                if (xQueueReceive(buttonEventQueue, &buttonEvent, portMAX_DELAY))
+                {
+                    // Process the button event
+                    switch (buttonEvent)
+                    {
+                    case BUTTON1_PRESS:
+                        // Handle Button 1 press
+                        menuLevel = 99;
+                        break;
+                    case BUTTON2_PRESS:
+                        // Handle Button 2 press
+                        menuLevel--;
+                        break;
+                    case BUTTON3_PRESS:
+                        // Handle Button 3 press
+                        menuLevel++;
+                        break;
+                    case BUTTON4_PRESS:
+                        // Handle Button 4 press
+                        // printf(temp);
+                        temp = 1 - temp;
+                        break;
+                        // Add cases for other button presses
+                    }
+                }
+            }
+            setMessage(10, 0);
+            setMessage(13, 0);
+            break;
+
+        case 4:
+            // alternatePump
+            while (menuLevel == 4)
+            {
+                temp = (alternatePump == 1) ? 1 : temp;
+                alternatePump = temp;
+                if (alternatePump == 1)
+                {
+                    setMessage(14, 1);
+                }
+                else
+                {
+                    setMessage(14, 0);
+                }
+                if (alternatePump == 0)
+                {
+                    setMessage(15, 1);
+                }
+                else
+                {
+                    setMessage(15, 0);
+                }
+                if (xQueueReceive(buttonEventQueue, &buttonEvent, portMAX_DELAY))
+                {
+                    // Process the button event
+                    switch (buttonEvent)
+                    {
+                    case BUTTON1_PRESS:
+                        // Handle Button 1 press
+                        menuLevel = 99;
+                        break;
+                    case BUTTON2_PRESS:
+                        // Handle Button 2 press
+                        menuLevel--;
+                        break;
+                    case BUTTON3_PRESS:
+                        // Handle Button 3 press
+                        menuLevel++;
+                        break;
+                    case BUTTON4_PRESS:
+                        // Handle Button 4 press
+                        // printf(temp);
+                        temp = 1 - temp;
+                        break;
+                        // Add cases for other button presses
+                    }
+                }
+            }
+            setMessage(14, 0);
+            setMessage(15, 0);
+            break;
+
+        case 5:
+            // ps1 enable psEnable.ps1
+            while (menuLevel == 5)
+            {
+                temp = (psEnable.ps1 == 1) ? 1 : temp;
+                psEnable.ps1 = temp;
+                if (psEnable.ps1 == 1)
+                {
+                    setMessage(16, 1);
+                }
+                else
+                {
+                    setMessage(16, 0);
+                }
+                if (psEnable.ps1 == 0)
+                {
+                    setMessage(17, 1);
+                }
+                else
+                {
+                    setMessage(17, 0);
+                }
+                if (xQueueReceive(buttonEventQueue, &buttonEvent, portMAX_DELAY))
+                {
+                    // Process the button event
+                    switch (buttonEvent)
+                    {
+                    case BUTTON1_PRESS:
+                        // Handle Button 1 press
+                        menuLevel = 99;
+                        break;
+                    case BUTTON2_PRESS:
+                        // Handle Button 2 press
+                        menuLevel--;
+                        break;
+                    case BUTTON3_PRESS:
+                        // Handle Button 3 press
+                        menuLevel++;
+                        break;
+                    case BUTTON4_PRESS:
+                        // Handle Button 4 press
+                        // printf(temp);
+                        temp = 1 - temp;
+                        break;
+                        // Add cases for other button presses
+                    }
+                }
+            }
+            setMessage(16, 0);
+            setMessage(17, 0);
+            break;
+
+        case 6:
+            // ps2 enable
+            temp = (psEnable.ps2 == 1) ? 1 : temp;
+            while (menuLevel == 6)
+            {
+                psEnable.ps2 = temp;
+                if (psEnable.ps2 == 1)
+                {
+                    setMessage(18, 1);
+                }
+                else
+                {
+                    setMessage(18, 0);
+                }
+                if (psEnable.ps2 == 0)
+                {
+                    setMessage(19, 1);
+                }
+                else
+                {
+                    setMessage(19, 0);
+                }
+                if (xQueueReceive(buttonEventQueue, &buttonEvent, portMAX_DELAY))
+                {
+                    // Process the button event
+                    switch (buttonEvent)
+                    {
+                    case BUTTON1_PRESS:
+                        // Handle Button 1 press
+                        menuLevel = 99;
+                        break;
+                    case BUTTON2_PRESS:
+                        // Handle Button 2 press
+                        menuLevel--;
+                        break;
+                    case BUTTON3_PRESS:
+                        // Handle Button 3 press
+                        menuLevel++;
+                        break;
+                    case BUTTON4_PRESS:
+                        // Handle Button 4 press
+                        // printf(temp);
+                        temp = 1 - temp;
+                        break;
+                        // Add cases for other button presses
+                    }
+                }
+            }
+            setMessage(18, 0);
+            setMessage(19, 0);
+            break;
+
+        case 99:
+            updateNvsVar();
+            setNvs();
+            setMessage(21, 1);
+            menuLevel = 0;
+            break;
+        
+        default:
+            menuLevel = 1;
+            break;
+        }
     }
 }
 
@@ -962,57 +980,22 @@ void ioConfig(void)
 
 void app_main(void)
 {
-    int buttonEvent;
+    int cntr = 0;
     ioConfig();
     ioTimerInit();
     initReadNvs();
-    addMsg(21);
+    setMessage(21,1);
     initGPIO();
-    printf("Menu Level: %d\n", menuLevel);
-    
+    mainMenu();
     while (1)
     {
-        printf("In the loop!\n");
-        if (xQueueReceive(buttonEventQueue, &buttonEvent, portMAX_DELAY))
+        if (cntr == 1000)
         {
-            // Process the button event
-            switch (buttonEvent)
-            {
-            case BUTTON1_PRESS:
-                // Handle Button 1 press
-                menuLevel++;
-                break;
-            case BUTTON2_PRESS:
-                // Handle Button 2 press
-                menuLevel++;
-                break;
-            case BUTTON3_PRESS:
-                // Handle Button 3 press
-                menuLevel++;
-                break;
-            case BUTTON4_PRESS:
-                // Handle Button 4 press
-                menuLevel++;
-                break;
-                // Add cases for other button presses
-            }
+            cntr = 0;
+            printf("Menu Level: %d\n", menuLevel);
+            printBitByBit(activeMessagesMask);
+            printBitByBit(messagesInArrayMask);
         }
-        if (menuLevel != 0)
-            {
-                temp = 0;
-                printf("check1\n");
-                menuLevel = 1;
-                deleteMsg(21);
-                if (menuLevel > 0)
-                {
-                    xTaskCreate((TaskFunction_t)mainMenu, "mainMenu", 4096, NULL, 10, NULL);
-                }
-                if (menuLevel == 0)
-                {
-                    updateNvsVar();
-                    setNvs();
-                    addMsg(21);
-                }
-            }
+        cntr++;
     }
 }
