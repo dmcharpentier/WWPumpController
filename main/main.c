@@ -57,21 +57,15 @@ int counter = 0; // Initialize counter
 
 // Message Variables
 #define MAX_MSGS 10                 // Adjust as needed
-#define MSG_SIZE 4                  // Number of segments per message
+#define MSG_SIZE 5                  // Number of segments per message
 #define SEGMENT_CODES 29            // Number of entries in SEG8Code
-typedef struct {
-    uint8_t segments[MSG_SIZE];
-} Message;
-Message activeMsg[MAX_MSGS];
+uint8_t activeMsg[MAX_MSGS][MSG_SIZE];
 uint8_t curDisplay[MSG_SIZE];
 int msgCount = 0;
 int currentIndex = 0;
 int syncCounter = 0;          // Counter to sync messages
 uint32_t activeMessagesMask = 0;  // Tracks messages currently active
 uint32_t messagesInArrayMask = 0; // Tracks messages currently in the array
-//                    1      2    3     4     5     6      7     8     9      10     11     12     13      14      15      16       17       18       19       20       21         22        23       24         25         26         27         28         29          30          31          32
-uint32_t toggle[] = {0x01, 0x02, 0x04, 0x08, 0x10, 0x20, 0x40, 0x80, 0x100, 0x200, 0x400, 0x800, 0x1000, 0x2000, 0x4000, 0x8000, 0x10000, 0x20000, 0x40000, 0x80000, 0x100000, 0x200000, 0x400000, 0x800000, 0x1000000, 0x2000000, 0x4000000, 0x8000000, 0x10000000, 0x20000000, 0x40000000, 0x80000000};
-
 
 // Menu Variables
 #define BUTTON1_PRESS 1
@@ -116,7 +110,7 @@ static void IRAM_ATTR gpio_isr_handler(void* arg) {
             break;
         // Add cases for other buttons
     }
-    BaseType_t xHigherPriorityTaskWoken = pdTRUE;
+    BaseType_t xHigherPriorityTaskWoken = pdFALSE;
     xQueueSendFromISR(buttonEventQueue, &event, &xHigherPriorityTaskWoken);
     if(xHigherPriorityTaskWoken) {
         portYIELD_FROM_ISR(); // Ensure higher priority tasks are executed immediately
@@ -189,7 +183,7 @@ void readNvsVar(void)
     alternatePump = (settingVar >> 8) & 1;
 }
 
-void initReadNvs(void)
+void initReadNvs(void *pvParameters)
 {
     esp_err_t err = nvs_flash_init();
     if (err == ESP_ERR_NVS_NO_FREE_PAGES || err == ESP_ERR_NVS_NEW_VERSION_FOUND)
@@ -226,6 +220,7 @@ void initReadNvs(void)
     }
     readNvsVar();
     nvs_close(settings);
+    vTaskDelete(NULL);
 }
 
 void setNvs(void)
@@ -378,92 +373,76 @@ void Send_74HC595(uint8_t Num, uint8_t Seg, uint8_t out)
  *       CH.:0,1,2,3,4,5,6,7,8,9,A ,b ,C ,c ,d ,E ,F
  *       NO.:17,18,19,20,21,22,23,24,25,26,27,28
  *       CH.:H ,h ,L ,n ,N ,o ,P ,r ,t ,U ,- ,  ,*/
-const int statusMessages[][4] = {
-    {28, 27, 27, 28}, // " -- " 0
-    {10, 26, 25, 22}, //"AUto"  1
-    {23, 27, 1, 10},  // "P-1A" 2
-    {23, 27, 2, 10},  // "P-2A" 3
-    {23, 27, 3, 10},  // "P-3A" 4
-    {23, 27, 1, 17},  // "P-1H" 5
-    {23, 27, 2, 17},  // "P-2H" 6
-    {23, 27, 3, 17},  // "P-3H" 7
-    {23, 1, 28, 26},  // "P1 Y" 8
-    {23, 2, 28, 26},  // "P2 Y" 9
-    {23, 3, 28, 26},  // "P3 Y" 10
-    {23, 1, 28, 21},  // "P1 N" 11
-    {23, 2, 28, 21},  // "P2 N" 12
-    {23, 3, 28, 21},  // "P3 N" 13
-    {10, 19, 28, 26}, // "AL Y" 14
-    {10, 19, 28, 21}, // "AL N" 15
-    {25, 1, 28, 26},  // "t1 Y" 16
-    {25, 1, 28, 21},  // "t1 N" 17
-    {25, 2, 28, 26},  // "t2 Y" 18
-    {25, 2, 28, 21},  // "t2 N" 19
-    {15, 24, 24, 28},  // "Err " 20
-    {28, 27, 27, 28} // " -- " 21
+uint8_t statusMessages[][MSG_SIZE] = {
+    {28, 27, 27, 28, 0}, // " -- " 0
+    {10, 26, 25, 22, 0}, //"AUto"  1
+    {23, 27, 1, 10, 0},  // "P-1A" 2
+    {23, 27, 2, 10, 0},  // "P-2A" 3
+    {23, 27, 3, 10, 0},  // "P-3A" 4
+    {23, 27, 1, 17, 0},  // "P-1H" 5
+    {23, 27, 2, 17, 0},  // "P-2H" 6
+    {23, 27, 3, 17, 0},  // "P-3H" 7
+    {23, 1, 28, 26, 0},  // "P1 Y" 8
+    {23, 2, 28, 26, 0},  // "P2 Y" 9
+    {23, 3, 28, 26, 0},  // "P3 Y" 10
+    {23, 1, 28, 21, 0},  // "P1 N" 11
+    {23, 2, 28, 21, 0},  // "P2 N" 12
+    {23, 3, 28, 21, 0},  // "P3 N" 13
+    {10, 19, 28, 26, 0}, // "AL Y" 14
+    {10, 19, 28, 21, 0}, // "AL N" 15
+    {25, 1, 28, 26, 0},  // "t1 Y" 16
+    {25, 1, 28, 21, 0},  // "t1 N" 17
+    {25, 2, 28, 26, 0},  // "t2 Y" 18
+    {25, 2, 28, 21, 0},  // "t2 N" 19
+    {15, 24, 24, 28, 0},  // "Err " 20
+    {28, 27, 27, 28, 0} // " -- " 21
 };
 
-// Function to translate a statusMessage code to a Message struct
-Message translateToMessage(const int statusMessageIndex) {
-    Message msg;
-    for (int i = 0; i < MSG_SIZE; ++i) {
-        msg.segments[i] = SEG8Code[statusMessages[statusMessageIndex][i]];
-    }
-    return msg;
-}
-
 // Compares two messages for equality
-bool areMessagesEqual(Message msg1, Message msg2) {
+bool areMessagesEqual(uint8_t msg1[], uint8_t msg2[]) {
     for (int i = 0; i < MSG_SIZE; i++) {
-        if (msg1.segments[i] != msg2.segments[i]) {
+        if (msg1[i] != msg2[i]) {
             return false;
         }
     }
     return true;
 }
 
-void printBitByBit(u_int32_t printable){
-
-    // READ_PERI_REG is the ESP32 function to read DR_REG_RNG_BASE
-    int i;
-    for (i = 1; i < 32; i++){ 
-      int mask =  toggle[i-1];
-      int masked_n = printable & mask;
-      int thebit = masked_n >> i;   
-      printf("%i", thebit);
-    }
-    printf("\n");
-}
-
 void setMessage (int option, bool value) {
     if (value) {
-        activeMessagesMask |= toggle[option];
+        activeMessagesMask |= 1 << option;
     } else {
-        activeMessagesMask &= ~toggle[option];
+        activeMessagesMask &= ~(1 << option);
     }
 }
 
 // Function to add a message to activeMsg if it's not already added
 void addMsg(int option) {
-    if (!(messagesInArrayMask & toggle[option])) { // Check if message is not already active
+    if (!(messagesInArrayMask & 1 << option)) { // Check if message is not already active
         if (msgCount < MAX_MSGS) {
-            activeMsg[msgCount] = translateToMessage(option);
+            for (int i = 0; i < MSG_SIZE; i++)
+            {
+                activeMsg[msgCount][i] = statusMessages[option][i];
+            }
             msgCount++;
-            messagesInArrayMask |= toggle[option]; // Mark as active
+            messagesInArrayMask |= 1 << option; // Mark as active
         }
     }
 }
 
 void deleteMsg(int option) {
-    if (messagesInArrayMask & toggle[option]) {
+    if (messagesInArrayMask & 1 << option) {
         // Find and remove the message from activeMsg
         for (int i = 0; i < msgCount; i++) {
-            if (areMessagesEqual(activeMsg[i], translateToMessage(option))) {
+            if (areMessagesEqual(activeMsg[i], statusMessages[option])) {
                 for (int j = i; j < msgCount - 1; j++) {
-                    activeMsg[j] = activeMsg[j + 1]; // Shift messages down
+                    for (size_t r = 0; i < MSG_SIZE; i++)
+                    {
+                        activeMsg[j][r] = activeMsg[j + 1][r]; // Shift messages down
+                    }
                 }
                 msgCount--;
-                messagesInArrayMask &= ~toggle[option]; // Clear from mask
+                messagesInArrayMask &= ~(1 << option); // Clear from mask
                 break;
             }
         }
@@ -471,64 +450,74 @@ void deleteMsg(int option) {
 }
 
 // Synchronizes the active messages with the display array
-void syncActiveMessages(void) {
-    uint32_t currentMask = activeMessagesMask;
-    for (int option = 0; option < MAX_MSGS; option++) {
-        uint32_t mask = toggle[option];
-        if ((currentMask & mask) && !(messagesInArrayMask & mask)) {
-            addMsg(option);
-        } else if (!(currentMask & mask) && (messagesInArrayMask & mask)) {
-            deleteMsg(option);
+void syncActiveMessages(void *pvParameters)
+{
+    TickType_t xLastWakeTime;
+    const TickType_t xFrequency = pdMS_TO_TICKS(250);
+    while (1)
+    {
+        vTaskDelayUntil(&xLastWakeTime, xFrequency);
+        uint32_t currentMask = activeMessagesMask;
+        for (int option = 0; option < 32; option++)
+        {
+            uint32_t mask = 1 << option;
+            if ((currentMask & mask) && !(messagesInArrayMask & mask))
+            {
+                addMsg(option);
+            }
+            else if (!(currentMask & mask) && (messagesInArrayMask & mask))
+            {
+                deleteMsg(option);
+            }
         }
+        // Delay for a period.
+
     }
 }
 
-void displayRotate(void) {
-    if (msgCount > 0) {
-        // Copy the current message's segment codes to curDisplay
-        for (int i = 0; i < MSG_SIZE; i++) {
-            curDisplay[i] = activeMsg[currentIndex].segments[i];
-        }
-        currentIndex = (currentIndex + 1) % msgCount; // Rotate to the next message
-    }
+/**
+ * @brief Rotates the messages displayed on the screen.
+ * 
+ * This function updates the current message index and copies the corresponding message
+ * to the curDisplay array. The messages are rotated in a circular manner.
+ */
+void rotateMessages()
+{
+  currentIndex = (currentIndex + 1) % msgCount;
+  memcpy(curDisplay, activeMsg[currentIndex], sizeof(curDisplay));
 }
-
 
 /*********          Message System End          *********/
 
-void outputSend(void)
+void outputSend(void *pvParameters)
 {
-    int px1 = curDisplay[0];
-    int px2 = curDisplay[1];
-    int px3 = curDisplay[2];
-    int px4 = curDisplay[3];
-    uint8_t tempPx[4] = {0};
-    tempPx[0] = SEG8Code[menuLevel];
-    tempPx[1] = SEG8Code[px2];
-    tempPx[2] = SEG8Code[px3]; //| Dot;
-    tempPx[3] = SEG8Code[px4];
-    Send_74HC595(tempPx[BitsSele], BitsSelection[BitsSele], Out_Value);
-    BitsSele++;
-    if (BitsSele == 4)
+    const TickType_t xDelay250ms = pdMS_TO_TICKS(5);
+    while (1)
     {
-        BitsSele = 0;
+        uint8_t Dot = 0x80; // Dot for display
+        uint8_t tempPx[4] = {0};
+        for (int i = 0; i < 4; i++)
+        {
+            if (curDisplay[4] == i + 1)
+            {
+                tempPx[i] = SEG8Code[curDisplay[i]] | Dot;
+            }
+            else
+            {
+                tempPx[i] = SEG8Code[curDisplay[i]];
+            }
+        }
+        Send_74HC595(tempPx[BitsSele], BitsSelection[BitsSele], Out_Value);
+        BitsSele = (BitsSele + 1) % 4;
+        vTaskDelay(xDelay250ms);
     }
 }
 
 void mainMenu(void)
 {
-    int cntr = 0;
     int buttonEvent;
-    while (1)
+    while (menuLevel>0)
     {
-        if (cntr == 1000)
-        {
-            cntr = 0;
-            printf("Menu Level: %d\n", menuLevel);
-            printBitByBit(activeMessagesMask);
-            printBitByBit(messagesInArrayMask);
-        }
-        cntr++;
         switch (menuLevel)
         {
         case 0:
@@ -882,7 +871,7 @@ void mainMenu(void)
     }
 }
 
-void initGPIO(void)
+void initGPIO(void *pvParameters)
 {
     // Initialize NVS
     esp_err_t err = nvs_flash_init();
@@ -894,24 +883,61 @@ void initGPIO(void)
 
     gpio_init(); // Initialize button handling
 
-    // Start the main menu task
+    vTaskDelete(NULL);
 }
 
-static bool IRAM_ATTR io_timer_cb(gptimer_handle_t timer, const gptimer_alarm_event_data_t *edata, void *user_data)
+static bool IRAM_ATTR sync_timer_cb(gptimer_handle_t timer, const gptimer_alarm_event_data_t *edata, void *user_data)
 {
-    switchSet();
-    outputSend();
-    if (counter == 500)
+    //syncActiveMessages();
+    if (counter == 2)
     {
         counter = 0;
-        syncActiveMessages();
-        displayRotate();
+        rotateMessages();
     }
     counter++;
     return pdTRUE;
 }
 
-void ioTimerInit(void)
+void syncTimerInit(void *pvParameters)
+{
+    gptimer_handle_t gptimer1 = NULL; // Universal Timer Handle
+    gptimer_config_t timer_config = {
+        // Initialization parameter setting
+        .clk_src = GPTIMER_CLK_SRC_DEFAULT, // Select Clock Source
+        .direction = GPTIMER_COUNT_UP,      // Upward Counting
+        .resolution_hz = 1 * 1000 * 1000,   // 1MHz, 1 tick = 1us  Setting the Timing Time
+    };
+    ESP_LOGI(TAG, "Start timer, stop it at alarm event");
+    ESP_ERROR_CHECK(gptimer_new_timer(&timer_config, &gptimer1)); // Creates a general-purpose timer that returns a task handle.
+
+    gptimer_event_callbacks_t cbs = {
+        // Interrupt callback function (alrm interrupt)
+        .on_alarm = sync_timer_cb,
+    };
+
+    ESP_LOGI(TAG, "Enable timer");
+    ESP_ERROR_CHECK(gptimer_register_event_callbacks(gptimer1, &cbs, NULL)); // The first call to this function needs to be preceded by a call to gptimer_enable
+    ESP_ERROR_CHECK(gptimer_enable(gptimer1));                               // Enable Timer Interrupt
+
+    ESP_LOGI(TAG, "Start timer, auto-reload at alarm event");
+    gptimer_alarm_config_t alarm_config = {
+        .reload_count = 0,
+        .alarm_count = 250000, // period = 250ms
+        .flags.auto_reload_on_alarm = true,
+    };
+    ESP_ERROR_CHECK(gptimer_set_alarm_action(gptimer1, &alarm_config));
+    ESP_ERROR_CHECK(gptimer_start(gptimer1));
+    vTaskDelete(NULL);
+}
+
+static bool IRAM_ATTR io_timer_cb(gptimer_handle_t timer, const gptimer_alarm_event_data_t *edata, void *user_data)
+{
+    switchSet();
+    //outputSend();
+    return pdTRUE;
+}
+
+void outputTimerInit(void *pvParameters)
 {
     gptimer_handle_t gptimer = NULL; // Universal Timer Handle
     gptimer_config_t timer_config = {
@@ -940,9 +966,10 @@ void ioTimerInit(void)
     };
     ESP_ERROR_CHECK(gptimer_set_alarm_action(gptimer, &alarm_config));
     ESP_ERROR_CHECK(gptimer_start(gptimer));
+    vTaskDelete(NULL);
 }
 
-void ioConfig(void)
+void ioConfig(void *pvParameters)
 {
     // zero-initialize the config structure.
     gpio_config_t io_conf1 = {};
@@ -976,26 +1003,27 @@ void ioConfig(void)
     // disable pull-up mode
     io_conf1.pull_up_en = 0;
     gpio_config(&io_conf1);
+    vTaskDelete(NULL);
+}
+
+void ctrlCenter(void)
+{
+
 }
 
 void app_main(void)
 {
     int cntr = 0;
-    ioConfig();
-    ioTimerInit();
-    initReadNvs();
+    xTaskCreate(&ioConfig, "ioConfig", 2048, NULL, 1, NULL);
+    xTaskCreate(&outputTimerInit, "outputTimerInit", 2048, NULL, 1, NULL);
+    xTaskCreate(&initReadNvs, "initReadNvs", 2048, NULL, 1, NULL);
+    xTaskCreate(&initGPIO, "initGPIO", 2048, NULL, 1, NULL);
+    xTaskCreate(&syncTimerInit, "syncTimerInit", 2048, NULL, 1, NULL);
+    xTaskCreate(&syncActiveMessages, "syncActiveMessages", 2048, NULL, 1, NULL);
+    xTaskCreate(&outputSend, "outputSend", 2048, NULL, 1, NULL);
+    //outputTimerInit();
+    //initReadNvs();
     setMessage(21,1);
-    initGPIO();
     mainMenu();
-    while (1)
-    {
-        if (cntr == 1000)
-        {
-            cntr = 0;
-            printf("Menu Level: %d\n", menuLevel);
-            printBitByBit(activeMessagesMask);
-            printBitByBit(messagesInArrayMask);
-        }
-        cntr++;
-    }
+    ctrlCenter();
 }
