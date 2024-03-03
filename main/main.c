@@ -59,6 +59,7 @@ int counter = 0; // Initialize counter
 #define MAX_MSGS 10                 // Adjust as needed
 #define MSG_SIZE 5                  // Number of segments per message
 #define SEGMENT_CODES 29            // Number of entries in SEG8Code
+#define outputMS 5                // Output refresh rate in ms
 uint8_t activeMsg[MAX_MSGS][MSG_SIZE];
 uint8_t curDisplay[MSG_SIZE];
 int msgCount = 0;
@@ -259,80 +260,84 @@ void switchSet(void)
     Inputs = Read_Inputs();
     // Set auto
     // P1
-    if (Inputs & 0x01)
+    switch (Inputs & 0x01)
     {
-        switchStatus.p1a = 0;
-    }
-    else
-    {
-        switchStatus.p1a = 1;
-    }
-
-    // P2
-    if (Inputs & 0x04)
-    {
-        switchStatus.p2a = 0;
-    }
-    else
-    {
-        switchStatus.p2a = 1;
-    }
-    // P3
-    if (Inputs & 0x16)
-    {
-        switchStatus.p3a = 0;
-    }
-    else
-    {
-        switchStatus.p3a = 1;
-    }
-    // Set hand
-    // P1
-    if (Inputs & 0x02)
-    {
-        switchStatus.p1h = 0;
-    }
-    else
-    {
-        switchStatus.p1h = 1;
-    }
-    // P2
-    if (Inputs & 0x08)
-    {
-        switchStatus.p2h = 0;
-    }
-    else
-    {
-        switchStatus.p2h = 1;
-    }
-    // P3
-    if (Inputs & 0x32)
-    {
-        switchStatus.p3h = 0;
-    }
-    else
-    {
-        switchStatus.p3h = 1;
+        case 0:
+            switchStatus.p1a = 0;
+            break;
+        case 1:
+            switchStatus.p1a = 1;
+            break;
     }
 
-    // Set PS
-    // PS1
-    if (Inputs & 0x64)
+    switch (Inputs & 0x04)
     {
-        psStatus.ps1 = 0;
+        case 0:
+            switchStatus.p2a = 0;
+            break;
+        case 1:
+            switchStatus.p2a = 1;
+            break;
     }
-    else
+
+    switch (Inputs & 0x16)
     {
-        psStatus.ps1 = 1;
+        case 0:
+            switchStatus.p3a = 0;
+            break;
+        case 1:
+            switchStatus.p3a = 1;
+            break;
     }
-    // PS2
-    if (Inputs & 0x128)
+
+    switch (Inputs & 0x02)
     {
-        psStatus.ps2 = 0;
+        case 0:
+            switchStatus.p1h = 0;
+            break;
+        case 1:
+            switchStatus.p1h = 1;
+            break;
     }
-    else
+
+    switch (Inputs & 0x08)
     {
-        psStatus.ps2 = 1;
+        case 0:
+            switchStatus.p2h = 0;
+            break;
+        case 1:
+            switchStatus.p2h = 1;
+            break;
+    }
+
+    switch (Inputs & 0x32)
+    {
+        case 0:
+            switchStatus.p3h = 0;
+            break;
+        case 1:
+            switchStatus.p3h = 1;
+            break;
+    }
+
+    switch (Inputs & 0x64)
+    {
+        case 0:
+            psStatus.ps1 = 0;
+            break;
+        case 1:
+            psStatus.ps1 = 1;
+            break;
+    }
+
+    switch (Inputs & 0x128)
+    {
+        case 0:
+            psStatus.ps2 = 0;
+            break;
+        case 1:
+            psStatus.ps2 = 1;
+            break;
     }
 }
 
@@ -491,7 +496,6 @@ void rotateMessages()
 
 void outputSend(void *pvParameters)
 {
-    const TickType_t xDelay250ms = pdMS_TO_TICKS(5);
     while (1)
     {
         uint8_t Dot = 0x80; // Dot for display
@@ -509,7 +513,7 @@ void outputSend(void *pvParameters)
         }
         Send_74HC595(tempPx[BitsSele], BitsSelection[BitsSele], Out_Value);
         BitsSele = (BitsSele + 1) % 4;
-        vTaskDelay(xDelay250ms);
+        vTaskDelay(pdMS_TO_TICKS(outputMS));
     }
 }
 
@@ -1021,8 +1025,6 @@ void app_main(void)
     xTaskCreate(&syncTimerInit, "syncTimerInit", 2048, NULL, 1, NULL);
     xTaskCreate(&syncActiveMessages, "syncActiveMessages", 2048, NULL, 1, NULL);
     xTaskCreate(&outputSend, "outputSend", 2048, NULL, 1, NULL);
-    //outputTimerInit();
-    //initReadNvs();
     setMessage(21,1);
     mainMenu();
     ctrlCenter();
