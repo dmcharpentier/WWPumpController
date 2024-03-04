@@ -12,6 +12,7 @@
 #include "nvs.h"
 #include "esp_system.h"
 #include "nvs_flash.h"
+#include "iot_button.h"
 
 #define CLOCK_595 27
 #define LATCH_595 14
@@ -44,12 +45,10 @@
 
 static const char *TAG = "Ctrl";
 
+//Display output variables
 uint8_t BitsSelection[4] = {0xFE, 0xFD, 0xFB, 0xF7};
-uint8_t Dot = 0x80;
+uint8_t Dot = 0x80; // Dot for display
 uint8_t BitsSele = 0;
-
-// Loop Logix Variables
-int counter = 0; // Initialize counter
 
 // LSB (least significant bit) first or MSB (most significant bit) first
 #define LSBFIRST 0
@@ -59,12 +58,10 @@ int counter = 0; // Initialize counter
 #define MAX_MSGS 10                 // Adjust as needed
 #define MSG_SIZE 5                  // Number of segments per message
 #define SEGMENT_CODES 29            // Number of entries in SEG8Code
-#define outputMS 5                // Output refresh rate in ms
 uint8_t activeMsg[MAX_MSGS][MSG_SIZE];
 uint8_t curDisplay[MSG_SIZE];
 int msgCount = 0;
 int currentIndex = 0;
-int syncCounter = 0;          // Counter to sync messages
 uint32_t activeMessagesMask = 0;  // Tracks messages currently active
 uint32_t messagesInArrayMask = 0; // Tracks messages currently in the array
 
@@ -73,15 +70,9 @@ uint32_t messagesInArrayMask = 0; // Tracks messages currently in the array
 #define BUTTON2_PRESS 2
 #define BUTTON3_PRESS 3
 #define BUTTON4_PRESS 4
-QueueHandle_t buttonEventQueue = NULL;
 volatile int menuLevel = 0;
 volatile int temp = 0;
 int alternatePump = 0;
-
-
-// NVS Variables
-nvs_handle_t settings;
-int32_t settingVar = 0; // value will default to 0, if not set yet in NVS
 
 uint8_t SEG8Code[] = {0x3f, 0x06, 0x5b, 0x4f, 0x66, 0x6d, 0x7d, 0x07, 0x7f, 0x6f, 0x77, 0x7c, 0x39, 0x58, 0x5e, 0x79, 0x71, 0x76, 0x74, 0x38, 0x54, 0x37, 0x5c, 0x73, 0x50, 0x78, 0x3e, 0x40, 0x00}; // Common anode Digital Tube Character Gallery
 
@@ -92,100 +83,50 @@ uint8_t Out_Cnt = 0;
 uint8_t Value = 0;
 uint8_t Relays = 0;
 
-// ISR handler for button presses
-static void IRAM_ATTR gpio_isr_handler(void* arg) {
-    int buttonNum = (int)arg;
-    int event = 0;
-    switch (buttonNum) {
-        case KEY1:
-            event = BUTTON1_PRESS;
-            break;
-        case KEY2:
-            event = BUTTON2_PRESS;
-            break;
-        case KEY3:
-            event = BUTTON3_PRESS;
-            break;
-        case KEY4:
-            event = BUTTON4_PRESS;
-            break;
-        // Add cases for other buttons
-    }
-    BaseType_t xHigherPriorityTaskWoken = pdFALSE;
-    xQueueSendFromISR(buttonEventQueue, &event, &xHigherPriorityTaskWoken);
-    if(xHigherPriorityTaskWoken) {
-        portYIELD_FROM_ISR(); // Ensure higher priority tasks are executed immediately
-    }
-}
+//   NEW VARIABLES
+uint8_t switchStatus;
 
-// Initialize GPIO and ISR for button handling
-void gpio_init(void) {
-    gpio_config_t io_conf;
-    // Zeroing the config structure
-    memset(&io_conf, 0, sizeof(gpio_config_t));
+// NVS Variables
+nvs_handle_t nvsStorage;
+uint32_t nvsSettings;
 
-    // Configure GPIOs for input, pull-up, and interrupt on falling edge
-    io_conf.intr_type = GPIO_INTR_NEGEDGE;
-    io_conf.mode = GPIO_MODE_INPUT;
-    io_conf.pin_bit_mask = (1ULL<<KEY1) | (1ULL<<KEY2) | (1ULL<<KEY3) | (1ULL<<KEY4); // Repeat for other buttons
-    io_conf.pull_up_en = 1;
-    gpio_config(&io_conf);
+// Declare the task handle
+TaskHandle_t rotateTaskHandle;
 
-    // Initialize the queue
-    buttonEventQueue = xQueueCreate(10, sizeof(int));
-
-    // Install ISR service and add handlers for each button
-    gpio_install_isr_service(0);
-    gpio_isr_handler_add(KEY1, gpio_isr_handler, (void*)KEY1);
-    gpio_isr_handler_add(KEY2, gpio_isr_handler, (void*)KEY2);
-    gpio_isr_handler_add(KEY3, gpio_isr_handler, (void*)KEY3);
-    gpio_isr_handler_add(KEY4, gpio_isr_handler, (void*)KEY4);
-    // Repeat for other buttons
-}
-
-struct pumps
-{
-    // set auto switch
-    unsigned int p1a : 1;
-    unsigned int p2a : 1;
-    unsigned int p3a : 1;
-    // set hand switch
-    unsigned int p1h : 1;
-    unsigned int p2h : 1;
-    unsigned int p3h : 1;
+struct Pump {
+    int pumpId;
+    int pumpActive;
+    // Add more properties as needed
 };
 
-struct ps
-{
-    unsigned int ps1 : 1; // 0 bit
-    unsigned int ps2 : 1; // 1 bit
+struct PumpController {
+    struct Pump pumps[8];
 };
 
-struct pumps switchStatus;
-struct pumps pumpEnable;
-struct ps psStatus;
-struct ps psEnable;
+// Example usage of PumpController
+void examplePumpControllerUsage() {
+    struct PumpController controller;
 
-void updateNvsVar(void)
-{
-    settingVar = (pumpEnable.p1a << 0) | (pumpEnable.p2a << 1) | (pumpEnable.p3a << 2) | (pumpEnable.p1h << 3) | (pumpEnable.p2h << 4) | (pumpEnable.p3h << 5) | (psEnable.ps1 << 6) | (psEnable.ps2 << 7) | (alternatePump << 8);
+    // Initialize the pump properties
+    for (int i = 0; i < 8; i++) {
+        controller.pumps[i].pumpId = i + 1;
+        controller.pumps[i].pumpActive = 0; // Set initial status
+    }
+
+    // Access and modify pump properties
+    controller.pumps[0].pumpActive = 1; // Turn on pump 1
+
+    // Print pump properties
+    for (int i = 0; i < 8; i++) {
+        printf("Pump %d - Status: %d\n", controller.pumps[i].pumpId, controller.pumps[i].pumpActive);
+    }
 }
 
-void readNvsVar(void)
-{
-    pumpEnable.p1a = (settingVar >> 0) & 1;
-    pumpEnable.p2a = (settingVar >> 1) & 1;
-    pumpEnable.p3a = (settingVar >> 2) & 1;
-    pumpEnable.p1h = (settingVar >> 3) & 1;
-    pumpEnable.p2h = (settingVar >> 4) & 1;
-    pumpEnable.p3h = (settingVar >> 5) & 1;
-    psEnable.ps1 = (settingVar >> 6) & 1;
-    psEnable.ps2 = (settingVar >> 7) & 1;
-    alternatePump = (settingVar >> 8) & 1;
-}
+// END NEW VARIABLES
 
 void initReadNvs(void *pvParameters)
 {
+    int32_t settingVar = 0; // value will default to 0, if not set yet in NVS
     esp_err_t err = nvs_flash_init();
     if (err == ESP_ERR_NVS_NO_FREE_PAGES || err == ESP_ERR_NVS_NEW_VERSION_FOUND)
     {
@@ -194,7 +135,7 @@ void initReadNvs(void *pvParameters)
     }
     ESP_ERROR_CHECK(err);
 
-    err = nvs_open("storage", NVS_READWRITE, &settings);
+    err = nvs_open("storage", NVS_READWRITE, &nvsStorage);
     if (err != ESP_OK)
     {
         printf("Error (%s) opening NVS handle!\n", esp_err_to_name(err));
@@ -205,7 +146,7 @@ void initReadNvs(void *pvParameters)
 
         // Read
         printf("Reading settings from NVS ... ");
-        err = nvs_get_i32(settings, "settings", &settingVar);
+        err = nvs_get_i32(nvsStorage, "settings", &settingVar);
         switch (err)
         {
         case ESP_OK:
@@ -219,32 +160,32 @@ void initReadNvs(void *pvParameters)
             printf("Error (%s) reading!\n", esp_err_to_name(err));
         }
     }
-    readNvsVar();
-    nvs_close(settings);
+    nvsSettings = settingVar;
+    nvs_close(nvsStorage);
     vTaskDelete(NULL);
 }
 
 void setNvs(void)
 {
+    int32_t settingVar = nvsSettings;
     esp_err_t err = nvs_flash_init();
     // Write
-    err = nvs_open("storage", NVS_READWRITE, &settings);
-    err = nvs_set_i32(settings, "settings", settingVar);
+    err = nvs_open("storage", NVS_READWRITE, &nvsStorage);
+    err = nvs_set_i32(nvsStorage, "settings", settingVar);
 
     // Commit written value.
-    err = nvs_commit(settings);
+    err = nvs_commit(nvsStorage);
 
     // Close
-    nvs_close(settings);
+    nvs_close(nvsStorage);
 }
 
 uint8_t Read_Inputs(void)
 {
-    uint8_t i;
     uint8_t Temp = 0;
     gpio_set_level(LOAD_165, 0);
     gpio_set_level(LOAD_165, 1);
-    for (i = 0; i < 8; i++)
+    for (uint8_t i = 0; i < 8; i++)
     {
         Temp <<= 1;
         gpio_set_level(CLK_165, 0);
@@ -256,105 +197,16 @@ uint8_t Read_Inputs(void)
 
 void switchSet(void)
 {
-    uint8_t Inputs = 0;
-    Inputs = Read_Inputs();
-    // Set auto
-    // P1
-    switch (Inputs & 0x01)
-    {
-        case 0:
-            switchStatus.p1a = 0;
-            break;
-        case 1:
-            switchStatus.p1a = 1;
-            break;
-    }
-
-    switch (Inputs & 0x04)
-    {
-        case 0:
-            switchStatus.p2a = 0;
-            break;
-        case 1:
-            switchStatus.p2a = 1;
-            break;
-    }
-
-    switch (Inputs & 0x16)
-    {
-        case 0:
-            switchStatus.p3a = 0;
-            break;
-        case 1:
-            switchStatus.p3a = 1;
-            break;
-    }
-
-    switch (Inputs & 0x02)
-    {
-        case 0:
-            switchStatus.p1h = 0;
-            break;
-        case 1:
-            switchStatus.p1h = 1;
-            break;
-    }
-
-    switch (Inputs & 0x08)
-    {
-        case 0:
-            switchStatus.p2h = 0;
-            break;
-        case 1:
-            switchStatus.p2h = 1;
-            break;
-    }
-
-    switch (Inputs & 0x32)
-    {
-        case 0:
-            switchStatus.p3h = 0;
-            break;
-        case 1:
-            switchStatus.p3h = 1;
-            break;
-    }
-
-    switch (Inputs & 0x64)
-    {
-        case 0:
-            psStatus.ps1 = 0;
-            break;
-        case 1:
-            psStatus.ps1 = 1;
-            break;
-    }
-
-    switch (Inputs & 0x128)
-    {
-        case 0:
-            psStatus.ps2 = 0;
-            break;
-        case 1:
-            psStatus.ps2 = 1;
-            break;
-    }
+    switchStatus = (nvsSettings & ~(Read_Inputs()));
+    //switchStatus = nvsSettings & ~((dIn & 0x01) | (dIn & 0x04) | (dIn & 0x16) | (dIn & 0x02) | (dIn & 0x08) | (dIn & 0x32) | (dIn & 0x64) | (dIn & 0x128));
 }
 
-void shift_out(uint8_t dataPin, uint8_t clockPin, uint8_t bitOrder, uint8_t val)
+void shift_out(uint8_t dataPin, uint8_t clockPin, uint8_t val)
 {
-    uint8_t i;
     // send data (bits) to 74HC595N shift register
-    for (i = 0; i < 8; i++)
+    for (uint8_t i = 0; i < 8; i++)
     {
-        if (bitOrder == LSBFIRST)
-        {
-            gpio_set_level(dataPin, !!(val & (1 << i)));
-        }
-        else
-        {
-            gpio_set_level(dataPin, !!(val & (1 << (7 - i))));
-        }
+        gpio_set_level(dataPin, !!(val & (1 << (7 - i))));
         gpio_set_level(clockPin, 1);
         gpio_set_level(clockPin, 0);
     }
@@ -362,9 +214,9 @@ void shift_out(uint8_t dataPin, uint8_t clockPin, uint8_t bitOrder, uint8_t val)
 
 void Send_74HC595(uint8_t Num, uint8_t Seg, uint8_t out)
 {
-    shift_out(DATA_595, CLOCK_595, MSBFIRST, out);
-    shift_out(DATA_595, CLOCK_595, MSBFIRST, Seg);
-    shift_out(DATA_595, CLOCK_595, MSBFIRST, Num);
+    shift_out(DATA_595, CLOCK_595, out);
+    shift_out(DATA_595, CLOCK_595, Seg);
+    shift_out(DATA_595, CLOCK_595, Num);
     gpio_set_level(LATCH_595, 0);
     gpio_set_level(LATCH_595, 1);
 }
@@ -413,70 +265,45 @@ bool areMessagesEqual(uint8_t msg1[], uint8_t msg2[]) {
     return true;
 }
 
-void setMessage (int option, bool value) {
-    if (value) {
-        activeMessagesMask |= 1 << option;
-    } else {
-        activeMessagesMask &= ~(1 << option);
-    }
-}
-
-// Function to add a message to activeMsg if it's not already added
-void addMsg(int option) {
-    if (!(messagesInArrayMask & 1 << option)) { // Check if message is not already active
-        if (msgCount < MAX_MSGS) {
-            for (int i = 0; i < MSG_SIZE; i++)
-            {
-                activeMsg[msgCount][i] = statusMessages[option][i];
-            }
-            msgCount++;
-            messagesInArrayMask |= 1 << option; // Mark as active
-        }
-    }
-}
-
-void deleteMsg(int option) {
-    if (messagesInArrayMask & 1 << option) {
-        // Find and remove the message from activeMsg
-        for (int i = 0; i < msgCount; i++) {
-            if (areMessagesEqual(activeMsg[i], statusMessages[option])) {
-                for (int j = i; j < msgCount - 1; j++) {
-                    for (size_t r = 0; i < MSG_SIZE; i++)
-                    {
-                        activeMsg[j][r] = activeMsg[j + 1][r]; // Shift messages down
-                    }
-                }
-                msgCount--;
-                messagesInArrayMask &= ~(1 << option); // Clear from mask
-                break;
-            }
-        }
-    }
-}
-
-// Synchronizes the active messages with the display array
-void syncActiveMessages(void *pvParameters)
+void setMessage(int option, bool value)
 {
-    TickType_t xLastWakeTime;
-    const TickType_t xFrequency = pdMS_TO_TICKS(250);
-    while (1)
+    if (value)
     {
-        vTaskDelayUntil(&xLastWakeTime, xFrequency);
-        uint32_t currentMask = activeMessagesMask;
-        for (int option = 0; option < 32; option++)
-        {
-            uint32_t mask = 1 << option;
-            if ((currentMask & mask) && !(messagesInArrayMask & mask))
+        if (!(activeMessagesMask & 1 << option))
+        { // Check if message is not already active
+            if (msgCount < MAX_MSGS)
             {
-                addMsg(option);
-            }
-            else if (!(currentMask & mask) && (messagesInArrayMask & mask))
-            {
-                deleteMsg(option);
+                for (int i = 0; i < MSG_SIZE; i++)
+                {
+                    activeMsg[msgCount][i] = statusMessages[option][i];
+                }
+                msgCount++;
+                activeMessagesMask |= 1 << option; // Mark as active
             }
         }
-        // Delay for a period.
-
+    }
+    else
+    {
+        if (activeMessagesMask & 1 << option)
+        {
+            // Find and remove the message from activeMsg
+            for (int i = 0; i < msgCount; i++)
+            {
+                if (areMessagesEqual(activeMsg[i], statusMessages[option]))
+                {
+                    for (int j = i; j < msgCount - 1; j++)
+                    {
+                        for (int k = 0; k < MSG_SIZE; k++)
+                        {
+                            activeMsg[j][k] = activeMsg[j + 1][k]; // Shift messages down
+                        }
+                    }
+                    msgCount--;
+                    activeMessagesMask &= ~(1 << option); // Clear from mask
+                    break;
+                }
+            }
+        }
     }
 }
 
@@ -486,10 +313,16 @@ void syncActiveMessages(void *pvParameters)
  * This function updates the current message index and copies the corresponding message
  * to the curDisplay array. The messages are rotated in a circular manner.
  */
-void rotateMessages()
+
+// Function to rotate the messages displayed on the screen
+void rotateMessages(void *pvParameters)
 {
-  currentIndex = (currentIndex + 1) % msgCount;
-  memcpy(curDisplay, activeMsg[currentIndex], sizeof(curDisplay));
+    currentIndex = (currentIndex + 1) % msgCount;
+    for (int i = 0; i < sizeof(curDisplay); i++)
+    {
+        curDisplay[i] = activeMsg[currentIndex][i];
+    }
+    vTaskDelete(NULL);
 }
 
 /*********          Message System End          *********/
@@ -498,7 +331,6 @@ void outputSend(void *pvParameters)
 {
     while (1)
     {
-        uint8_t Dot = 0x80; // Dot for display
         uint8_t tempPx[4] = {0};
         for (int i = 0; i < 4; i++)
         {
@@ -511,56 +343,34 @@ void outputSend(void *pvParameters)
                 tempPx[i] = SEG8Code[curDisplay[i]];
             }
         }
-        Send_74HC595(tempPx[BitsSele], BitsSelection[BitsSele], Out_Value);
+        //Send_74HC595(tempPx[BitsSele], BitsSelection[BitsSele], Out_Value);
+        Send_74HC595(tempPx[BitsSele], BitsSelection[BitsSele], switchStatus);
         BitsSele = (BitsSele + 1) % 4;
-        vTaskDelay(pdMS_TO_TICKS(outputMS));
+        vTaskDelay(pdTICKS_TO_MS(5));
     }
 }
 
-void mainMenu(void)
+void readButtons()
 {
-    int buttonEvent;
+    int bArray[4] = {gpio_get_level(KEY1), gpio_get_level(KEY2), gpio_get_level(KEY3), gpio_get_level(KEY4)};
+}
+
+void mainMenu(void *pvParameters)
+{
     while (menuLevel>0)
     {
         switch (menuLevel)
         {
         case 0:
-            if (xQueueReceive(buttonEventQueue, &buttonEvent, portMAX_DELAY))
-            {
-                // Process the button event
-                switch (buttonEvent)
-                {
-                case BUTTON1_PRESS:
-                    // Handle Button 1 press
-                    menuLevel++;
-                    setMessage(21,0);
-                    break;
-                case BUTTON2_PRESS:
-                    // Handle Button 2 press
-                    menuLevel++;
-                    setMessage(21,0);
-                    break;
-                case BUTTON3_PRESS:
-                    // Handle Button 3 press
-                    menuLevel++;
-                    setMessage(21,0);
-                    break;
-                case BUTTON4_PRESS:
-                    // Handle Button 4 press
-                    menuLevel++;
-                    setMessage(21,0);
-                    break;
-                    // Add cases for other button presses
-                }
-            }
+            
             break;
         case 1:
             // p1Active
-            temp = (pumpEnable.p1a == 1) ? 1 : temp;
+            //temp = ((nvsSettings & 0x01) == 1) ? 1 : temp;
             while (menuLevel == 1)
             {
-                pumpEnable.p1a = temp;
-                switch (pumpEnable.p1a)
+                nvsSettings &= temp << 0;
+                switch (nvsSettings & 0x01)
                 {
                 case 0:
                     setMessage(11, 1);
@@ -571,31 +381,6 @@ void mainMenu(void)
                     setMessage(11, 0);
                     break;
                 }
-                if (xQueueReceive(buttonEventQueue, &buttonEvent, portMAX_DELAY))
-                {
-                    // Process the button event
-                    switch (buttonEvent)
-                    {
-                    case BUTTON1_PRESS:
-                        // Handle Button 1 press
-                        menuLevel = 99;
-                        break;
-                    case BUTTON2_PRESS:
-                        // Handle Button 2 press
-                        menuLevel = 1;
-                        break;
-                    case BUTTON3_PRESS:
-                        // Handle Button 3 press
-                        menuLevel++;
-                        break;
-                    case BUTTON4_PRESS:
-                        // Handle Button 4 press
-                        // printf(temp);
-                        temp = 1 - temp;
-                        break;
-                        // Add cases for other button presses
-                    }
-                }
             }
             setMessage(8, 0);
             setMessage(11, 0);
@@ -603,50 +388,20 @@ void mainMenu(void)
 
         case 2:
             // p2Active
+            //temp = ((nvsSettings & 0x02) == 1) ? 1 : temp;
             while (menuLevel == 2)
             {
-                temp = (pumpEnable.p2a == 1) ? 1 : temp;
-                pumpEnable.p2a = temp;
-                if (pumpEnable.p2a == 1)
+                nvsSettings |= temp << 1;
+                switch (nvsSettings & 0x02)
                 {
-                    setMessage(9, 1);
-                }
-                else
-                {
-                    setMessage(9, 0);
-                }
-                if (pumpEnable.p2a == 0)
-                {
-                    setMessage(12, 1);
-                }
-                else
-                {
-                    setMessage(12, 0);
-                }
-                if (xQueueReceive(buttonEventQueue, &buttonEvent, portMAX_DELAY))
-                {
-                    // Process the button event
-                    switch (buttonEvent)
-                    {
-                    case BUTTON1_PRESS:
-                        // Handle Button 1 press
-                        menuLevel = 99;
+                    case 0:
+                        setMessage(12, 1);
+                        setMessage(9, 0);
                         break;
-                    case BUTTON2_PRESS:
-                        // Handle Button 2 press
-                        menuLevel--;
+                    case 1:
+                        setMessage(9, 1);
+                        setMessage(12, 0);
                         break;
-                    case BUTTON3_PRESS:
-                        // Handle Button 3 press
-                        menuLevel++;
-                        break;
-                    case BUTTON4_PRESS:
-                        // Handle Button 4 press
-                        // printf(temp);
-                        temp = 1 - temp;
-                        break;
-                        // Add cases for other button presses
-                    }
                 }
             }
             setMessage(9, 0);
@@ -655,52 +410,22 @@ void mainMenu(void)
 
         case 3:
             // p3Active
+            //temp = ((nvsSettings & 0x04) == 1) ? 1 : temp;
             while (menuLevel == 3)
             {
-                temp = (pumpEnable.p3a == 1) ? 1 : temp;
-                pumpEnable.p3a = temp;
-                if (pumpEnable.p3a == 1)
+                switch (nvsSettings & 0x04)
                 {
-                    setMessage(10, 1);
-                }
-                else
-                {
-                    setMessage(10, 0);
-                }
-                if (pumpEnable.p3a == 0)
-                {
-                    setMessage(13, 1);
-                }
-                else
-                {
-                    setMessage(13, 0);
-                }
-                if (xQueueReceive(buttonEventQueue, &buttonEvent, portMAX_DELAY))
-                {
-                    // Process the button event
-                    switch (buttonEvent)
-                    {
-                    case BUTTON1_PRESS:
-                        // Handle Button 1 press
-                        menuLevel = 99;
+                    case 1:
+                        setMessage(10, 1);
+                        setMessage(13, 0);
                         break;
-                    case BUTTON2_PRESS:
-                        // Handle Button 2 press
-                        menuLevel--;
+                    case 0:
+                        setMessage(10, 0);
+                        setMessage(13, 1);
                         break;
-                    case BUTTON3_PRESS:
-                        // Handle Button 3 press
-                        menuLevel++;
-                        break;
-                    case BUTTON4_PRESS:
-                        // Handle Button 4 press
-                        // printf(temp);
-                        temp = 1 - temp;
-                        break;
-                        // Add cases for other button presses
-                    }
                 }
             }
+            nvsSettings |= (temp << 2);
             setMessage(10, 0);
             setMessage(13, 0);
             break;
@@ -709,48 +434,18 @@ void mainMenu(void)
             // alternatePump
             while (menuLevel == 4)
             {
-                temp = (alternatePump == 1) ? 1 : temp;
+                //temp = (alternatePump == 1) ? 1 : temp;
                 alternatePump = temp;
-                if (alternatePump == 1)
+                switch (alternatePump)
                 {
+                case 0:
                     setMessage(14, 1);
-                }
-                else
-                {
-                    setMessage(14, 0);
-                }
-                if (alternatePump == 0)
-                {
-                    setMessage(15, 1);
-                }
-                else
-                {
                     setMessage(15, 0);
-                }
-                if (xQueueReceive(buttonEventQueue, &buttonEvent, portMAX_DELAY))
-                {
-                    // Process the button event
-                    switch (buttonEvent)
-                    {
-                    case BUTTON1_PRESS:
-                        // Handle Button 1 press
-                        menuLevel = 99;
-                        break;
-                    case BUTTON2_PRESS:
-                        // Handle Button 2 press
-                        menuLevel--;
-                        break;
-                    case BUTTON3_PRESS:
-                        // Handle Button 3 press
-                        menuLevel++;
-                        break;
-                    case BUTTON4_PRESS:
-                        // Handle Button 4 press
-                        // printf(temp);
-                        temp = 1 - temp;
-                        break;
-                        // Add cases for other button presses
-                    }
+                    break;
+                case 1:
+                    setMessage(15, 1);
+                    setMessage(14, 0);
+                    break;
                 }
             }
             setMessage(14, 0);
@@ -761,9 +456,9 @@ void mainMenu(void)
             // ps1 enable psEnable.ps1
             while (menuLevel == 5)
             {
-                temp = (psEnable.ps1 == 1) ? 1 : temp;
-                psEnable.ps1 = temp;
-                if (psEnable.ps1 == 1)
+                //temp = ((nvsSettings & 0x64) == 1) ? 1 : temp;
+                //psEnable.ps1 = temp;
+                if (nvsSettings & 0x64)
                 {
                     setMessage(16, 1);
                 }
@@ -771,38 +466,13 @@ void mainMenu(void)
                 {
                     setMessage(16, 0);
                 }
-                if (psEnable.ps1 == 0)
+                if (nvsSettings & 0x64)
                 {
                     setMessage(17, 1);
                 }
                 else
                 {
                     setMessage(17, 0);
-                }
-                if (xQueueReceive(buttonEventQueue, &buttonEvent, portMAX_DELAY))
-                {
-                    // Process the button event
-                    switch (buttonEvent)
-                    {
-                    case BUTTON1_PRESS:
-                        // Handle Button 1 press
-                        menuLevel = 99;
-                        break;
-                    case BUTTON2_PRESS:
-                        // Handle Button 2 press
-                        menuLevel--;
-                        break;
-                    case BUTTON3_PRESS:
-                        // Handle Button 3 press
-                        menuLevel++;
-                        break;
-                    case BUTTON4_PRESS:
-                        // Handle Button 4 press
-                        // printf(temp);
-                        temp = 1 - temp;
-                        break;
-                        // Add cases for other button presses
-                    }
                 }
             }
             setMessage(16, 0);
@@ -811,11 +481,11 @@ void mainMenu(void)
 
         case 6:
             // ps2 enable
-            temp = (psEnable.ps2 == 1) ? 1 : temp;
+            //temp = ((nvsSettings & 0x128) == 1) ? 1 : temp;
             while (menuLevel == 6)
             {
-                psEnable.ps2 = temp;
-                if (psEnable.ps2 == 1)
+                //psEnable.ps2 = temp;
+                if (nvsSettings & 0x128)
                 {
                     setMessage(18, 1);
                 }
@@ -823,7 +493,7 @@ void mainMenu(void)
                 {
                     setMessage(18, 0);
                 }
-                if (psEnable.ps2 == 0)
+                if (nvsSettings & 0x128)
                 {
                     setMessage(19, 1);
                 }
@@ -831,38 +501,13 @@ void mainMenu(void)
                 {
                     setMessage(19, 0);
                 }
-                if (xQueueReceive(buttonEventQueue, &buttonEvent, portMAX_DELAY))
-                {
-                    // Process the button event
-                    switch (buttonEvent)
-                    {
-                    case BUTTON1_PRESS:
-                        // Handle Button 1 press
-                        menuLevel = 99;
-                        break;
-                    case BUTTON2_PRESS:
-                        // Handle Button 2 press
-                        menuLevel--;
-                        break;
-                    case BUTTON3_PRESS:
-                        // Handle Button 3 press
-                        menuLevel++;
-                        break;
-                    case BUTTON4_PRESS:
-                        // Handle Button 4 press
-                        // printf(temp);
-                        temp = 1 - temp;
-                        break;
-                        // Add cases for other button presses
-                    }
-                }
             }
             setMessage(18, 0);
             setMessage(19, 0);
             break;
 
         case 99:
-            updateNvsVar();
+            //updateNvsVar();
             setNvs();
             setMessage(21, 1);
             menuLevel = 0;
@@ -873,103 +518,6 @@ void mainMenu(void)
             break;
         }
     }
-}
-
-void initGPIO(void *pvParameters)
-{
-    // Initialize NVS
-    esp_err_t err = nvs_flash_init();
-    if (err == ESP_ERR_NVS_NO_FREE_PAGES || err == ESP_ERR_NVS_NEW_VERSION_FOUND) {
-      //ESP_ERROR_CHECK(nvs_flash_erase());
-      err = nvs_flash_init();
-    }
-    ESP_ERROR_CHECK(err);
-
-    gpio_init(); // Initialize button handling
-
-    vTaskDelete(NULL);
-}
-
-static bool IRAM_ATTR sync_timer_cb(gptimer_handle_t timer, const gptimer_alarm_event_data_t *edata, void *user_data)
-{
-    //syncActiveMessages();
-    if (counter == 2)
-    {
-        counter = 0;
-        rotateMessages();
-    }
-    counter++;
-    return pdTRUE;
-}
-
-void syncTimerInit(void *pvParameters)
-{
-    gptimer_handle_t gptimer1 = NULL; // Universal Timer Handle
-    gptimer_config_t timer_config = {
-        // Initialization parameter setting
-        .clk_src = GPTIMER_CLK_SRC_DEFAULT, // Select Clock Source
-        .direction = GPTIMER_COUNT_UP,      // Upward Counting
-        .resolution_hz = 1 * 1000 * 1000,   // 1MHz, 1 tick = 1us  Setting the Timing Time
-    };
-    ESP_LOGI(TAG, "Start timer, stop it at alarm event");
-    ESP_ERROR_CHECK(gptimer_new_timer(&timer_config, &gptimer1)); // Creates a general-purpose timer that returns a task handle.
-
-    gptimer_event_callbacks_t cbs = {
-        // Interrupt callback function (alrm interrupt)
-        .on_alarm = sync_timer_cb,
-    };
-
-    ESP_LOGI(TAG, "Enable timer");
-    ESP_ERROR_CHECK(gptimer_register_event_callbacks(gptimer1, &cbs, NULL)); // The first call to this function needs to be preceded by a call to gptimer_enable
-    ESP_ERROR_CHECK(gptimer_enable(gptimer1));                               // Enable Timer Interrupt
-
-    ESP_LOGI(TAG, "Start timer, auto-reload at alarm event");
-    gptimer_alarm_config_t alarm_config = {
-        .reload_count = 0,
-        .alarm_count = 250000, // period = 250ms
-        .flags.auto_reload_on_alarm = true,
-    };
-    ESP_ERROR_CHECK(gptimer_set_alarm_action(gptimer1, &alarm_config));
-    ESP_ERROR_CHECK(gptimer_start(gptimer1));
-    vTaskDelete(NULL);
-}
-
-static bool IRAM_ATTR io_timer_cb(gptimer_handle_t timer, const gptimer_alarm_event_data_t *edata, void *user_data)
-{
-    switchSet();
-    //outputSend();
-    return pdTRUE;
-}
-
-void outputTimerInit(void *pvParameters)
-{
-    gptimer_handle_t gptimer = NULL; // Universal Timer Handle
-    gptimer_config_t timer_config = {
-        // Initialization parameter setting
-        .clk_src = GPTIMER_CLK_SRC_DEFAULT, // Select Clock Source
-        .direction = GPTIMER_COUNT_UP,      // Upward Counting
-        .resolution_hz = 1 * 1000 * 1000,   // 1MHz, 1 tick = 1us  Setting the Timing Time
-    };
-    ESP_LOGI(TAG, "Start timer, stop it at alarm event");
-    ESP_ERROR_CHECK(gptimer_new_timer(&timer_config, &gptimer)); // Creates a general-purpose timer that returns a task handle.
-
-    gptimer_event_callbacks_t cbs = {
-        // Interrupt callback function (alrm interrupt)
-        .on_alarm = io_timer_cb,
-    };
-
-    ESP_LOGI(TAG, "Enable timer");
-    ESP_ERROR_CHECK(gptimer_register_event_callbacks(gptimer, &cbs, NULL)); // The first call to this function needs to be preceded by a call to gptimer_enable
-    ESP_ERROR_CHECK(gptimer_enable(gptimer));                               // Enable Timer Interrupt
-
-    ESP_LOGI(TAG, "Start timer, auto-reload at alarm event");
-    gptimer_alarm_config_t alarm_config = {
-        .reload_count = 0,
-        .alarm_count = 1000, // period = 1ms
-        .flags.auto_reload_on_alarm = true,
-    };
-    ESP_ERROR_CHECK(gptimer_set_alarm_action(gptimer, &alarm_config));
-    ESP_ERROR_CHECK(gptimer_start(gptimer));
     vTaskDelete(NULL);
 }
 
@@ -1010,22 +558,66 @@ void ioConfig(void *pvParameters)
     vTaskDelete(NULL);
 }
 
-void ctrlCenter(void)
+static void menuUp_cb(void *arg)
 {
+    menuLevel = menuLevel + 1;
+}
 
+void ctrlCenter(void *pvParameters)
+{
+    button_config_t gpio_btn1_cfg = {
+        .type = BUTTON_TYPE_GPIO,
+        .long_press_time = CONFIG_BUTTON_LONG_PRESS_TIME_MS,
+        .short_press_time = CONFIG_BUTTON_SHORT_PRESS_TIME_MS,
+        .gpio_button_config = {
+            .gpio_num = 18,
+            .active_level = 0,
+        },
+    };
+
+    button_handle_t gpio_btn1 = iot_button_create(&gpio_btn1_cfg);
+    if (NULL == gpio_btn1)
+    {
+        ESP_LOGE(TAG, "Button create failed");
+    }
+
+    uint8_t msgCounter = 0;
+    uint8_t switchCounter = 0;
+    button_event_config_t cfg = {
+    .event = BUTTON_PRESS_UP,
+    .event_data.long_press.press_time = 2000,
+    };
+    iot_button_register_event_cb(gpio_btn1, cfg, BUTTON_PRESS_UP, menuUp_cb);
+    while (1)
+    {
+        if (msgCounter == 50)
+        {
+            msgCounter = 0;
+            xTaskCreate(&rotateMessages, "rotateMessages", 2048, NULL, 1, NULL);
+        }
+        msgCounter++;
+        if (switchCounter == 40)
+        {
+            switchCounter = 0;
+            switchSet();
+        }
+        switchCounter++;
+        if (menuLevel > 0)
+        {
+            iot_button_unregister_event(gpio_btn1, cfg, BUTTON_PRESS_UP);
+            printf("Menu Level: %d\n", menuLevel);
+            //xTaskCreate(&mainMenu, "mainMenu", 2048, NULL, 2, NULL);
+        }
+        vTaskDelay(pdTICKS_TO_MS(10));
+    }
+    vTaskDelete(NULL);
 }
 
 void app_main(void)
 {
-    int cntr = 0;
+    setMessage(21, 1);
     xTaskCreate(&ioConfig, "ioConfig", 2048, NULL, 1, NULL);
-    xTaskCreate(&outputTimerInit, "outputTimerInit", 2048, NULL, 1, NULL);
     xTaskCreate(&initReadNvs, "initReadNvs", 2048, NULL, 1, NULL);
-    xTaskCreate(&initGPIO, "initGPIO", 2048, NULL, 1, NULL);
-    xTaskCreate(&syncTimerInit, "syncTimerInit", 2048, NULL, 1, NULL);
-    xTaskCreate(&syncActiveMessages, "syncActiveMessages", 2048, NULL, 1, NULL);
-    xTaskCreate(&outputSend, "outputSend", 2048, NULL, 1, NULL);
-    setMessage(21,1);
-    mainMenu();
-    ctrlCenter();
+    xTaskCreate(&outputSend, "outputSend", 2048, NULL, 2, NULL);
+    xTaskCreate(&ctrlCenter, "ctrlCenter", 8192, NULL, 1, NULL);
 }
